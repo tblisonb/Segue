@@ -1,0 +1,11 @@
+.gradle/
+.kotlin/
+build/
+local.properties
+*.apk
+*.aab
+.idea/
+*.iml
+captures/
+# Claude Code keeps its worktrees here.
+.claude/

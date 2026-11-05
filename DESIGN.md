@@ -1,16 +1,18 @@
-# Segue (the MediaSync player): design notes
+# Segue: design notes
 
-Segue (named 2026-11-04) is an Android music player for the library MediaSync keeps on the phone, built in this repository as
-its own app (`:player`, `com.tlisonbee.mediasync.player`). Local playback comes first; TIDAL comes
-after it. These notes hold the decisions, what was found, and the plan; the [README](../README.md)
-will cover using it once there's something to use.
+Segue (named 2026-11-04) is an Android music player, first built inside
+[MediaSync](https://github.com/tblisonb/MediaSync) (as `:player`, `com.tlisonbee.mediasync.player`)
+for the library MediaSync keeps on the phone, and moved to this repository for 1.0.0 (2026-11-05)
+as `com.tlisonbee.segue`. These notes hold the decisions and what was found, in the order they
+came; the [README](README.md) covers using it. Paths and commands below are this repository's; the
+history before the move is in MediaSync's `player/`.
 
 ## Decisions
 
-- **Its own app, in this repository.** A music player has a different life from a sync app: a
-  playback service, a media notification, and being opened many times a day. Keeping it a separate
-  APK keeps MediaSync small, while living here lets it reuse `:shared` (jaudiotagger tag reading,
-  the API client, server versions) and `scripts/release.sh`.
+- **Its own app.** A music player has a different life from a sync app: a playback service, a
+  media notification, and being opened many times a day. It began in MediaSync's repository to
+  reuse its `:shared` code; once it stood on its own (local playback, TIDAL, Last.fm), it got its
+  own repository (see "Moving out of MediaSync" below).
 - **Signed with MediaSync's release key.** Both apps then share a signature, so MediaSync can offer
   the player things no other app gets (a `signature` permission): "these files changed" after a
   sync, and the pairing for streaming from the server. The player never pairs on its own.
@@ -27,8 +29,8 @@ will cover using it once there's something to use.
 - **Tapping a track plays it in its context:** the album, playlist, folder or search result plays
   from that track, and the queue is separate (**Play next**, **Add to queue**). Saved playlists
   never change by playing them.
-- **Versioned and released on its own,** as `player-v…`, like the other parts. Once it streams from
-  the server it gets a `MIN_SERVER` like the other apps.
+- **Versioned and released on its own** (`scripts/release.sh`, tags `v…`). MediaSync's server
+  features need server 1.5.0 or later; with an older server Segue says so.
 - **Not for now:** Android Auto (Media3's `MediaLibraryService` would make it cheap later), TIDAL
   (after local playback; see below), tag editing, and a Play Store build.
 
@@ -74,11 +76,11 @@ ExoPlayer plays as they are. The playback login the plugin uses is TIDAL's own A
 
 ### Phase 0 checks
 
-Instrumented tests, run on the phone with `./gradlew :player:connectedDebugAndroidTest` (they touch
+Instrumented tests, run on the phone with `./gradlew :app:connectedDebugAndroidTest` (they touch
 only the player's own package) and read with `adb logcat -s PlayerPhase0`:
 
 - `GaplessAndroidTest` plays a 220 Hz tone cut in two at a sample that isn't on an MP3 frame
-  boundary, each half encoded on its own (`player/make-fixtures.sh`), records what reaches the audio
+  boundary, each half encoded on its own (`scripts/make-fixtures.sh`), records what reaches the audio
   output, and checks that all 264,600 frames come out with no step at the cut and one audio track
   throughout. A control pair without the encoder header must show the gap, so the check is known
   to see one. A third run tags the second half -6.02 dB and checks the level halves within a
@@ -106,8 +108,8 @@ its processors, each time it flushes them, which playlist item the following aud
   around the track change. `realFilesFromArguments` does this for any files.
 - **The gain switches at the track change:** the level halved within one period of the cut, and
   the gain processor saw the second item when the sink flushed for it.
-- **Scanning:** 9,080 audio files in `Music/`, listed in 7.7 s; reading tags with `:shared`'s
-  `AudioTags` took 5.4 ms a file (none failed, 48% with a cover), so a first scan takes about a
+- **Scanning:** 9,080 audio files in `Music/`, listed in 7.7 s; reading tags with jaudiotagger (then
+  MediaSync's `AudioTags`, now `TrackTags`) took 5.4 ms a file (none failed, 48% with a cover), so a first scan takes about a
   minute. Later scans only read files whose size or date changed.
 
 **Licence:** Jellyfin's FFmpeg build is GPL-3.0, so the player's APK is a GPL-3.0 work when it's
@@ -118,7 +120,7 @@ distributed. The repository is GPL-3.0-or-later (decided 2026-11-03), which fits
 What's built, and how:
 
 - **The index** (`library/`): `Library` walks `Music/` (one `stat` per file, through
-  `Files.walkFileTree`), reads the tags of new and changed files with `:shared`'s `AudioTags`, and
+  `Files.walkFileTree`), reads the tags of new and changed files with `TrackTags` (jaudiotagger), and
   keeps them in `library.db`. All tracks are held in memory (`LibraryData`), from which albums
   (by album artist and album), artists (with the tracks they have on other artists' albums),
   folders and search are worked out. The scan runs each time the app opens (at most every five
@@ -126,7 +128,7 @@ What's built, and how:
 - **Covers** come from the file's embedded picture, else a `cover.jpg`/`folder.jpg` beside it, and
   are stored once per picture at 720 px in the app's own storage; lists, Now Playing and the
   notification read those copies.
-- **ReplayGain** tags are read now (`AudioTags.Inspection.replayGain`: `TXXX` frames, Vorbis
+- **ReplayGain** tags are read now (`TrackTags.Inspection.replayGain`: `TXXX` frames, Vorbis
   comments, iTunes fields) and applied by `GainProcessor` in Track or Album mode (Settings; Track by
   default). Until the server writes them (phase 2), tracks play as they are.
 - **Playback** is a `MediaSessionService` (`playback/`), which gives the media notification, the
@@ -156,10 +158,10 @@ where it was); the media notification was up, and the saved queue matched. By ha
 Now Playing, the queue and search, and the queue coming back at the same position after the app
 was reinstalled.
 
-To run it: `./gradlew :player:installDebug :player:installDebugAndroidTest`, then
-`adb shell am instrument -w -e class com.tlisonbee.mediasync.player.PlaybackAndroidTest com.tlisonbee.mediasync.player.test/androidx.test.runner.AndroidJUnitRunner`.
+To run it: `./gradlew :app:installDebug :app:installDebugAndroidTest`, then
+`adb shell am instrument -w -e class com.tlisonbee.segue.PlaybackAndroidTest com.tlisonbee.segue.test/androidx.test.runner.AndroidJUnitRunner`.
 The test lets the player in with All files access and leaves it on (taking it back kills the
-process before the result is reported): `adb shell appops set com.tlisonbee.mediasync.player MANAGE_EXTERNAL_STORAGE default`.
+process before the result is reported): `adb shell appops set com.tlisonbee.segue MANAGE_EXTERNAL_STORAGE default`.
 
 ### Phase 2: loudness from the server
 
@@ -187,7 +189,9 @@ declare the permission, so either can be installed first.
 Built (Segue 0.3.0, `tidal/`), ported from the fooyin plugin (its docs/design.md has what was
 learned about the APIs):
 
-- **Two logins**, in Settings: the account (your developer app, PKCE; its redirect
+- **Two logins**, in Settings (since 1.0.0 one button runs both, one after the other in the same
+  web view, so the second finds TIDAL's login session and usually needs no password or emailed
+  code again): the account (your developer app, PKCE; its redirect
   `http://localhost:47130/callback` is caught by the login page itself, so the same developer app
   as fooyin's works) and playback (a client of TIDAL's Android app, PKCE ending on
   `https://tidal.com/android/login/auth`). Both run in a web view that catches the redirect; if
@@ -228,7 +232,7 @@ learned about the APIs):
   against what TIDAL sends.
 
 Instrumented tests can run against the installed release build, without uninstalling it:
-`./gradlew -Pplayer.testBuildType=release :player:assembleReleaseAndroidTest`, then install that
+`./gradlew -Psegue.testBuildType=release :app:assembleReleaseAndroidTest`, then install that
 test APK and `am instrument` as above.
 
 ### Phase 2 notes
@@ -279,4 +283,29 @@ primaries turn most hues pastel. The system bars' icons follow Segue's theme rat
   skipped). Tapping opens the library's artist or album or plays the track, or searches TIDAL for
   it. Now Playing shows your play count of the track (`track.getInfo`, cached for the session and
   counted up locally as you scrobble).
+
+## Moving out of MediaSync (1.0.0)
+
+Segue moved to its own repository on 2026-11-05, with its history (`git subtree split` of
+MediaSync's `player/`), as the `:app` module. What it used from MediaSync's `:shared` it now has
+itself: `TrackTags` (jaudiotagger, reading only: tags, the front cover, the length and the
+ReplayGain values), `TagField`'s names, `FileNames.segment` (MediaSync's rules for a file name, so
+the playlists it writes sync anywhere), and the server's music listing as its own small types
+(`remote/MusicListing.kt`, unknown fields ignored, checked against a reply shaped like the
+server's in `RemoteMusicTest`).
+
+The application ID changed with the move, from `com.tlisonbee.mediasync.player` to
+`com.tlisonbee.segue`. The MediaSync integration is unchanged and is MediaSync's API, so its names
+keep MediaSync's prefix:
+
+| What | Name | Which side |
+| --- | --- | --- |
+| Signature permission | `com.tlisonbee.mediasync.permission.PLAYER` | declared by both, so either installs first |
+| "These files changed" after a sync | broadcast `com.tlisonbee.mediasync.action.FILES_CHANGED`, extra `paths`, sent to `com.tlisonbee.segue` | MediaSync app 1.3.1+ sends, Segue receives |
+| The phone's pairing, for streaming | provider `content://com.tlisonbee.mediasync.player-access` (`server_url`, `token`, `music_folder`, `device_name`) | MediaSync app serves, Segue reads |
+| The server's tracks | `GET /api/v1/music` (`?since=<rev>`), `GET /blobs/{hash}` with the device's token | MediaSync server 1.5.0+ |
+
+The permission being `signature` means both apps must be signed with the same key: release builds
+of both use MediaSync's release key (`~/.android/mediasync-release.properties`). A Segue built
+with another key works on its own, without the integration.
 
