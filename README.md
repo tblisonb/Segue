@@ -38,9 +38,15 @@ scrobbles to Last.fm.
 
 Segue needs Android 13 or later.
 
-1. From the [Releases](https://github.com/tblisonb/Segue/releases) page, download
-   `segue-<version>.apk` on the phone and open it. The first time, Android asks you to allow
-   installing apps from your browser or file manager.
+1. Either:
+   - **With F-Droid**, which then keeps Segue up to date: add the repo at
+     [tblisonb.github.io/fdroid](https://tblisonb.github.io/fdroid/) (open that page on the phone
+     and tap its link), then install Segue from it.
+   - **By hand:** from the [Releases](https://github.com/tblisonb/Segue/releases) page, download
+     `segue-<version>.apk` on the phone and open it. The first time, Android asks you to allow
+     installing apps from your browser or file manager.
+
+   Both are the same APK, so either updates a Segue installed the other way.
 2. Open Segue and allow **All files access**. It reads the `Music` folder and writes playlists in
    it, which Android's narrower media permission doesn't allow.
 
@@ -123,7 +129,8 @@ Release builds are signed with the key that `~/.android/mediasync-release.proper
 (or the file named by `-Psegue.signing=<file>`): `storeFile`, `storePassword`, `keyAlias` and
 `keyPassword`. Without it they're unsigned.
 
-`scripts/release.sh` tags a version and publishes its APK on GitHub (see `--help`).
+`scripts/release.sh` tags a version, publishes its APK on GitHub and adds it to the F-Droid repo
+(see `--help`).
 [DESIGN.md](DESIGN.md) has the design decisions, what was measured on a phone, and how the TIDAL,
 Last.fm and MediaSync parts work.
 
