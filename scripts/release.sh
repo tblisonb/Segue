@@ -4,7 +4,8 @@
 # Tags the version in app/build.gradle.kts (v<versionName>) and publishes it as a GitHub release
 # with its APK attached (segue-<version>.apk): a release build, signed with the release key, so
 # every release installs over the one before. NOTES.md, if given, opens the release notes; after
-# the first release they list the commits since the last one.
+# the first release they list the commits since the last one. Then it adds the release to the F-Droid
+# repo (github.com/tblisonb/fdroid, checked out in ~/Applications/fdroid or $FDROID_REPO).
 #
 # First bump versionName and versionCode in app/build.gradle.kts, commit and push. It releases what
 # main has on GitHub, after the unit tests pass, and refuses a version that's already tagged.
@@ -52,3 +53,11 @@ fi
 git tag -a "$tag" -m "Segue $version"
 git push -q origin "$tag"
 gh release create "$tag" "$asset" --verify-tag --title "Segue $version" --notes "${notes:-Segue $version}"
+
+fdroid_repo=${FDROID_REPO:-$HOME/Applications/fdroid}
+if [[ -x $fdroid_repo/scripts/publish.sh ]]; then
+    "$fdroid_repo/scripts/publish.sh" ||
+        echo "Released, but not in the F-Droid repo yet: run $fdroid_repo/scripts/publish.sh to retry." >&2
+else
+    echo "No F-Droid repo in $fdroid_repo: clone github.com/tblisonb/fdroid there and run its scripts/publish.sh." >&2
+fi
