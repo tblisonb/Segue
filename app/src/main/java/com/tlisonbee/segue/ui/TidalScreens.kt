@@ -250,9 +250,9 @@ fun TidalTabContent(ui: Ui, playing: String?) {
         val label = { i: Int ->
             val t = if (browser.tab == TidalTab.TRACKS) shown.getOrNull(i - 1)?.track else null
             when (sort.by) {
-                TidalSort.By.TITLE -> indexLetter(t?.titleKey)
-                TidalSort.By.ARTIST -> indexLetter(t?.artistKey)
-                TidalSort.By.ALBUM -> indexLetter(t?.albumTitleKey)
+                TidalSort.By.TITLE -> t?.titleKey
+                TidalSort.By.ARTIST -> t?.artistKey
+                TidalSort.By.ALBUM -> t?.albumTitleKey
                 else -> null
             }
         }

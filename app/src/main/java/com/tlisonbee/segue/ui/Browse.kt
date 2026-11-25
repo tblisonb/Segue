@@ -131,7 +131,7 @@ fun HomeScreen(ui: Ui, data: LibraryData, playing: String?) {
 private fun ArtistsTab(ui: Ui, data: LibraryData) {
     val vm = ui.vm
     val list = rememberLazyListState()
-    FastScrollBox(list, { i -> indexLetter(data.artists.getOrNull(i)?.key) }) {
+    FastScrollBox(list, { i -> data.artists.getOrNull(i)?.key }) {
         LazyColumn(Modifier.fillMaxSize(), list) {
             items(data.artists, key = { it.name }) { a ->
                 EntryRow(
@@ -152,7 +152,7 @@ private fun SongsTab(ui: Ui, data: LibraryData, playing: String?) {
     val vm = ui.vm
     val list = rememberLazyListState()
     // Item 0 is the Play and Shuffle row.
-    FastScrollBox(list, { i -> indexLetter(data.tracks.getOrNull(i - 1)?.titleKey) }) {
+    FastScrollBox(list, { i -> data.tracks.getOrNull(i - 1)?.titleKey }) {
         LazyColumn(Modifier.fillMaxSize(), list) {
             if (data.tracks.isNotEmpty()) {
                 item {
@@ -215,7 +215,7 @@ fun PlayButtons(onPlay: () -> Unit, onShuffle: () -> Unit, label: String? = null
 @Composable
 fun AlbumGrid(ui: Ui, albums: List<Album>) {
     val grid = rememberLazyGridState()
-    FastScrollBox(grid, { i -> indexLetter(albums.getOrNull(i)?.titleKey) }) {
+    FastScrollBox(grid, { i -> albums.getOrNull(i)?.titleKey }) {
         LazyVerticalGrid(GridCells.Adaptive(150.dp), Modifier.fillMaxSize(), grid, contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             items(albums, key = { it.key }) { a ->
                 Column(Modifier.clickable { ui.vm.navigate(Route.AlbumPage(a.key)) }) {
@@ -325,8 +325,8 @@ fun FolderContent(ui: Ui, data: LibraryData, path: String, playing: String?) {
     // Folders, a divider when there are both, then files.
     val divider = if (listing.folders.isNotEmpty() && listing.tracks.isNotEmpty()) 1 else 0
     val label = { i: Int ->
-        listing.folders.getOrNull(i)?.let { indexLetter(fold(it.name)) }
-            ?: listing.tracks.getOrNull(i - listing.folders.size - divider)?.let { indexLetter(it.fileKey) }
+        listing.folders.getOrNull(i)?.let { fold(it.name) }
+            ?: listing.tracks.getOrNull(i - listing.folders.size - divider)?.let { it.fileKey }
     }
     FastScrollBox(list, label) {
         LazyColumn(Modifier.fillMaxSize(), list) {
@@ -354,7 +354,7 @@ private fun PlaylistsTab(ui: Ui) {
     val playlists by ui.vm.library.playlists.collectAsState()
     val list = rememberLazyListState()
     // Item 0 is "New playlist…".
-    FastScrollBox(list, { i -> playlists.getOrNull(i - 1)?.let { indexLetter(fold(it.name)) } }) {
+    FastScrollBox(list, { i -> playlists.getOrNull(i - 1)?.let { fold(it.name) } }) {
         LazyColumn(Modifier.fillMaxSize(), list) {
             item { EntryRow("New playlist…", "", lead = { RoundIcon(R.drawable.ic_add) }, onClick = { ui.pickPlaylist(emptyList()) }) }
             items(playlists, key = { it.path }) { p ->

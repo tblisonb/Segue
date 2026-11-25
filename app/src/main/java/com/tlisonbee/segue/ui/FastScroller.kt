@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -40,14 +41,23 @@ import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 /**
- * The letter a list entry files under, from its sort key ([com.tlisonbee.segue.library.sortKey] or
- * [com.tlisonbee.segue.library.fold]: lowercase, no accents, "The" already gone where the list
- * ignores it). Digits and punctuation go under "#".
+ * What a list entry files under on the scrollbar, from its sort key ([com.tlisonbee.segue.library.sortKey]
+ * or [com.tlisonbee.segue.library.fold]: lowercase, no accents, "The" already gone where the list
+ * ignores it): its first letter, or with [two] its first two ("Sa"). Digits and punctuation go
+ * under "#"; a second character that isn't a letter or digit (the space in "S Club") is left off.
  */
-fun indexLetter(key: String?): String? {
+fun indexLetter(key: String?, two: Boolean = false): String? {
     val c = key?.firstOrNull() ?: return null
-    return if (c.isLetter()) c.uppercase() else "#"
+    if (!c.isLetter()) return "#"
+    val second = key.getOrNull(1)?.takeIf { two && it.isLetterOrDigit() } ?: return c.uppercase()
+    return c.uppercase() + second
 }
+
+/**
+ * Lists with more entries than this show two letters on the scrollbar (the setting,
+ * [com.tlisonbee.segue.PlayerSettings.twoLettersFrom]).
+ */
+val LocalTwoLettersFrom = compositionLocalOf { 1000 }
 
 /** What the scroller needs from a list or a grid. */
 private class Scrolled(
@@ -63,8 +73,9 @@ private class Scrolled(
 /**
  * [content] (a lazy list using [state]) with a scrollbar on the right. It shows while the list
  * scrolls and for a moment after; dragging its thumb jumps through the list, showing the letter
- * ([label] of the item at the top) it has reached. Hidden, it takes no touches, so the rows' own
- * buttons at the right edge still work. [label] takes the lazy list's item index, headers included.
+ * (or two, on long lists: [LocalTwoLettersFrom]) of the item at the top. [label] gives an item's
+ * sort key by the lazy list's item index, headers included (null for those, or where letters
+ * mean nothing). Hidden, it takes no touches, so the rows' own buttons at the right edge still work.
  */
 @Composable
 fun FastScrollBox(state: LazyListState, label: (Int) -> String?, modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
@@ -178,8 +189,9 @@ private fun FastScrollBox(s: Scrolled, label: (Int) -> String?, modifier: Modifi
 
         if (dragging) {
             // The first labelled item on screen: lists start with a header or two (Play, New playlist…).
-            val letter = remember(s.first(), s.visible()) {
-                (s.first() until s.first() + s.visible().coerceAtLeast(1)).firstNotNullOfOrNull { currentLabel(it) }
+            val two = s.total() > LocalTwoLettersFrom.current
+            val letter = remember(s.first(), s.visible(), two) {
+                (s.first() until s.first() + s.visible().coerceAtLeast(1)).firstNotNullOfOrNull { indexLetter(currentLabel(it), two) }
             }
             if (letter != null) {
                 val bubble = 64.dp

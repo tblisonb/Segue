@@ -15,6 +15,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
+import androidx.compose.animation.core.SeekableTransitionState
+import androidx.compose.ui.platform.LocalWindowInfo
 import kotlin.math.roundToInt
 import kotlin.math.abs
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -91,9 +94,46 @@ private fun rememberPosition(vm: PlayerViewModel, active: Boolean): Long {
 
 const val EXPAND_MS = 350
 
+/**
+ * Opening and closing Now Playing with a finger: the drag holds the same transition the buttons
+ * run (the panel shrinking into the mini player, or growing out of it) part way, and letting go
+ * finishes it, or takes it back if the finger didn't go far or fast enough.
+ */
+@UnstableApi
+class PanelPull(private val state: SeekableTransitionState<Boolean>, private val scope: CoroutineScope, private val vm: PlayerViewModel) {
+    /** While a finger holds the transition (Root then leaves it alone). */
+    var dragging = false
+        private set
+    private var distance = 0f
+
+    /** The finger moved [delta] pixels toward [open] (up to open, down to close); [span] pixels is all the way. */
+    fun drag(open: Boolean, delta: Float, span: Float) {
+        if (!dragging) {
+            dragging = true
+            distance = 0f
+        }
+        distance = (distance + delta).coerceIn(0f, span)
+        val fraction = distance / span
+        scope.launch { state.seekTo(fraction, open) }
+    }
+
+    /** The finger let go, moving toward [open] at [velocity] pixels a second. */
+    fun release(open: Boolean, velocity: Float, span: Float) {
+        if (!dragging) return
+        dragging = false
+        if (distance > span * 0.25f || velocity > 1000f) {
+            // Root animates the rest of the way from where the finger left it.
+            vm.nowPlayingOpen = open
+        } else {
+            scope.launch { state.animateTo(!open) }
+        }
+    }
+}
+
 /** What the mini player and Now Playing need to share their container and cover while one turns into the other. */
 @OptIn(ExperimentalSharedTransitionApi::class)
-class Transition(val shared: SharedTransitionScope, val visibility: AnimatedVisibilityScope) {
+@UnstableApi
+class Transition(val shared: SharedTransitionScope, val visibility: AnimatedVisibilityScope, val pull: PanelPull) {
     @Composable
     fun Modifier.container(): Modifier = with(shared) {
         sharedBounds(
@@ -118,18 +158,13 @@ fun MiniPlayer(ui: Ui, state: PlaybackState, data: LibraryData, transition: Tran
     val item = state.current ?: return@with
     val track = vm.track(item.mediaId)
     val position = rememberPosition(vm, state.isPlaying)
-    // Swiping up opens Now Playing, as tapping does: once the finger has gone far enough up, or on a flick.
-    val openAt = with(LocalDensity.current) { 40.dp.toPx() }
-    var dragged by remember { mutableFloatStateOf(0f) }
-    val swipeUp = rememberDraggableState { delta ->
-        dragged += delta
-        if (dragged < -openAt && !vm.nowPlayingOpen) vm.nowPlayingOpen = true
-    }
+    // Swiping up grows Now Playing out of the bar with the finger, as tapping does all at once.
+    val span = LocalWindowInfo.current.containerSize.height.toFloat().coerceAtLeast(1f)
+    val swipeUp = rememberDraggableState { delta -> pull.drag(open = true, -delta, span) }
     Surface(
         Modifier.container().draggable(
             swipeUp, Orientation.Vertical,
-            onDragStarted = { dragged = 0f },
-            onDragStopped = { velocity -> if (velocity < -1000f) vm.nowPlayingOpen = true },
+            onDragStopped = { velocity -> pull.release(open = true, -velocity, span) },
         ),
         tonalElevation = 3.dp,
     ) {
@@ -164,25 +199,19 @@ fun NowPlayingScreen(ui: Ui, state: PlaybackState, data: LibraryData, transition
     val vm = ui.vm
     val item = state.current
     val track = item?.let { vm.track(it.mediaId) }
-    // Swiping down anywhere (the cover, the titles) pulls the screen down with the finger; far or
-    // fast enough and it closes into the mini player, else it springs back. Not over the queue,
-    // whose list scrolls.
-    val drag = remember { Animatable(0f) }
+    // Swiping down anywhere (the cover, the titles) shrinks the screen into the mini player with
+    // the finger, the same way the Close button does; far or fast enough and it closes, else it
+    // grows back. Not over the queue, whose list scrolls.
     val scope = rememberCoroutineScope()
-    val closeAt = with(LocalDensity.current) { 120.dp.toPx() }
-    val pullDown = { delta: Float -> scope.launch { drag.snapTo((drag.value + delta).coerceAtLeast(0f)) }; Unit }
-    val letGo = { velocity: Float ->
-        if (drag.value > closeAt || velocity > 1500f) vm.nowPlayingOpen = false else scope.launch { drag.animateTo(0f) }
-        Unit
-    }
+    val span = LocalWindowInfo.current.containerSize.height.toFloat().coerceAtLeast(1f)
+    val pullDown = { delta: Float -> pull.drag(open = false, delta, span) }
+    val letGo = { velocity: Float -> pull.release(open = false, velocity, span) }
     val dragState = rememberDraggableState { delta -> pullDown(delta) }
     // The cover slides sideways with the finger; far or fast enough and it changes track.
     val slide = remember { Animatable(0f) }
     val playingId by rememberUpdatedState(item?.mediaId)
     Surface(
         Modifier
-            // Before the shared container, so closing starts from where the finger left it.
-            .offset { IntOffset(0, drag.value.roundToInt()) }
             .container()
             .fillMaxSize()
             .draggable(

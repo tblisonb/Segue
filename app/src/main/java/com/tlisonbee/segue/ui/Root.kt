@@ -17,6 +17,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.SeekableTransitionState
+import androidx.compose.animation.core.rememberTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
@@ -49,6 +51,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -96,18 +99,27 @@ fun PlayerRoot(vm: PlayerViewModel, hasAccess: Boolean) {
 
     BackHandler(enabled = vm.nowPlayingOpen || vm.stack.size > 1) { vm.back() }
     // The mini player grows into Now Playing and shrinks back (one shared container, and the cover).
+    // One seekable transition does both, so a finger can hold it part way (PanelPull).
+    val panel = remember { SeekableTransitionState(vm.nowPlayingOpen) }
+    val pull = remember(panel) { PanelPull(panel, scope, vm) }
+    LaunchedEffect(vm.nowPlayingOpen) {
+        if (!pull.dragging && (panel.currentState != vm.nowPlayingOpen || panel.targetState != vm.nowPlayingOpen)) panel.animateTo(vm.nowPlayingOpen)
+    }
+    val panelTransition = rememberTransition(panel, label = "now playing")
     SharedTransitionLayout(Modifier.fillMaxSize()) {
         val shared = this
         Scaffold(
             topBar = { TopBar(ui, route, data) },
             bottomBar = {
-                AnimatedVisibility(visible = !vm.nowPlayingOpen && playback.current != null, enter = fadeIn(tween(EXPAND_MS)), exit = fadeOut(tween(EXPAND_MS))) {
-                    MiniPlayer(ui, playback, data, Transition(shared, this))
+                panelTransition.AnimatedVisibility(visible = { open -> !open && playback.current != null }, enter = fadeIn(tween(EXPAND_MS)), exit = fadeOut(tween(EXPAND_MS))) {
+                    MiniPlayer(ui, playback, data, Transition(shared, this, pull))
                 }
             },
             snackbarHost = { SnackbarHost(snackbar) },
         ) { padding ->
+            val twoLettersFrom by vm.settings.twoLettersFrom.collectAsState()
             Box(Modifier.padding(padding).fillMaxSize()) {
+                CompositionLocalProvider(LocalTwoLettersFrom provides twoLettersFrom) {
                 when (route) {
                     Route.Home -> HomeScreen(ui, data, playing)
                     is Route.AlbumPage -> data.albumsByKey[route.key]?.let { AlbumScreen(ui, it, playing) } ?: Missing("This album isn't in the library any more.")
@@ -123,10 +135,11 @@ fun PlayerRoot(vm: PlayerViewModel, hasAccess: Boolean) {
                     Route.LastFmLoginPage -> LastFmLoginScreen(ui)
                     Route.LastFmStatsPage -> LastFmStatsScreen(ui, data, playing)
                 }
+                }
             }
         }
-        AnimatedVisibility(visible = vm.nowPlayingOpen, enter = fadeIn(tween(EXPAND_MS)), exit = fadeOut(tween(EXPAND_MS))) {
-            NowPlayingScreen(ui, playback, data, Transition(shared, this))
+        panelTransition.AnimatedVisibility(visible = { it }, enter = fadeIn(tween(EXPAND_MS)), exit = fadeOut(tween(EXPAND_MS))) {
+            NowPlayingScreen(ui, playback, data, Transition(shared, this, pull))
         }
     }
     picking?.let { tracks -> AddToPlaylistDialog(vm, tracks) { done -> picking = null; done?.let(ui.message) } }
@@ -316,6 +329,40 @@ private fun AppearanceSection(vm: PlayerViewModel) {
 
 @UnstableApi
 @Composable
+private fun ScrollbarSection(vm: PlayerViewModel) {
+    val from by vm.settings.twoLettersFrom.collectAsState()
+    val on = from != Int.MAX_VALUE
+    // What's typed, kept apart from the setting so the field can be empty for a moment.
+    var typed by remember { mutableStateOf(if (on) from.toString() else "1000") }
+    Text("Scrollbar", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp))
+    Text(
+        "Dragging a list's scrollbar shows the letter you've reached. On long lists it can show the first two letters (Sa, Se, Sh…) instead.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("Two letters on long lists", Modifier.weight(1f))
+        androidx.compose.material3.Switch(
+            checked = on,
+            onCheckedChange = { checked -> vm.settings.setTwoLettersFrom(if (checked) typed.toIntOrNull() ?: 1000 else Int.MAX_VALUE) },
+        )
+    }
+    if (on) {
+        OutlinedTextField(
+            typed,
+            { text ->
+                typed = text.filter { it.isDigit() }.take(6)
+                typed.toIntOrNull()?.let { vm.settings.setTwoLettersFrom(it) }
+            },
+            label = { Text("Lists longer than (entries)") },
+            singleLine = true,
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@UnstableApi
+@Composable
 private fun SettingsScreen(vm: PlayerViewModel) {
     val mode by vm.settings.gainMode.collectAsState()
     val data by vm.library.data.collectAsState()
@@ -355,6 +402,8 @@ private fun SettingsScreen(vm: PlayerViewModel) {
             OutlinedButton(enabled = !scan.running, onClick = { confirmFull = true }) { Text("Full scan") }
         }
         if (scan.running) Text(if (scan.total > 0) "Reading ${scan.done} of ${scan.total}…" else "Looking for changes…")
+
+        ScrollbarSection(vm)
 
         ServerSection(vm)
 

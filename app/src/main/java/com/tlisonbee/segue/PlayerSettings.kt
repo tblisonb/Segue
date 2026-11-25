@@ -76,6 +76,19 @@ class PlayerSettings(context: Context) {
         _accent.value = accent
     }
 
+    private val _twoLettersFrom = MutableStateFlow(prefs.getInt("two_letters_from", 1000))
+
+    /**
+     * The scrollbar shows two letters ("Sa", "Se", …) on lists with more than this many entries;
+     * one letter on shorter ones. [Int.MAX_VALUE] for never.
+     */
+    val twoLettersFrom: StateFlow<Int> = _twoLettersFrom.asStateFlow()
+
+    fun setTwoLettersFrom(entries: Int) {
+        prefs.edit().putInt("two_letters_from", entries).apply()
+        _twoLettersFrom.value = entries
+    }
+
     fun setGainMode(mode: GainMode) {
         prefs.edit().putString("gain_mode", mode.name).apply()
         _gainMode.value = mode
