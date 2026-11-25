@@ -1,5 +1,7 @@
 package com.tlisonbee.segue.tidal
 
+import com.tlisonbee.segue.library.sortKey
+
 /** An order for a TIDAL list of tracks (a playlist, your favorites); albums keep theirs. */
 data class TidalSort(val by: By = By.LIST, val reversed: Boolean = false) {
     enum class By(val label: String) {
@@ -23,6 +25,19 @@ data class TidalSort(val by: By = By.LIST, val reversed: Boolean = false) {
             By.ARTIST -> items.sortedWith(compareBy({ it.track?.artistKey }, { it.track?.albumTitleKey }, { it.track?.discNumber }, { it.track?.trackNumber }))
             By.ALBUM -> items.sortedWith(compareBy({ it.track?.albumTitleKey }, { it.track?.discNumber }, { it.track?.trackNumber }))
         }
+        return if (reversed) sorted.asReversed() else sorted
+    }
+}
+
+/**
+ * An order for your TIDAL albums, artists and playlists: TIDAL's own (favorites newest first,
+ * playlists most recently changed first) or by name. One choice for all three, as [TidalSort] is
+ * for track lists.
+ */
+data class TidalNameSort(val byName: Boolean = false, val reversed: Boolean = false) {
+    /** [items] in this order; by name as the library sorts ("The" ignored), then by artist. */
+    fun apply(items: List<TidalItem>): List<TidalItem> {
+        val sorted = if (byName) items.sortedWith(compareBy({ sortKey(it.title) }, { sortKey(it.artist) })) else items
         return if (reversed) sorted.asReversed() else sorted
     }
 }

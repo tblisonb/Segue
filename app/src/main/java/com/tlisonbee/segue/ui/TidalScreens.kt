@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -55,6 +56,7 @@ import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
 import com.tlisonbee.segue.R
 import com.tlisonbee.segue.library.Track
+import com.tlisonbee.segue.library.sortKey
 import com.tlisonbee.segue.tidal.TidalItem
 import com.tlisonbee.segue.tidal.TidalSort
 import com.tlisonbee.segue.tidal.TidalList
@@ -149,6 +151,33 @@ private fun TidalSortMenu(ui: Ui) {
     }
 }
 
+/** The sort menu for your TIDAL albums, artists and playlists: TIDAL's order ([ownOrder]) or by name. */
+@UnstableApi
+@Composable
+private fun TidalNameSortMenu(ui: Ui, ownOrder: String) {
+    val settings = ui.vm.settings
+    val sort by settings.tidalNameSort.collectAsState()
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconAction(R.drawable.ic_sort, "Sort") { open = true }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            for ((label, byName) in listOf(ownOrder to false, "Name" to true)) {
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    leadingIcon = { RadioButton(selected = sort.byName == byName, onClick = null) },
+                    onClick = { open = false; settings.setTidalNameSort(sort.copy(byName = byName)) },
+                )
+            }
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Reverse") },
+                leadingIcon = { Checkbox(checked = sort.reversed, onCheckedChange = null) },
+                onClick = { open = false; settings.setTidalNameSort(sort.copy(reversed = !sort.reversed)) },
+            )
+        }
+    }
+}
+
 /** [items] in the chosen TIDAL sort. */
 @UnstableApi
 @Composable
@@ -157,10 +186,67 @@ private fun sorted(ui: Ui, items: List<TidalItem>): List<TidalItem> {
     return remember(items, sort) { sort.apply(items) }
 }
 
+private val ADDED_MONTH = java.time.format.DateTimeFormatter.ofPattern("MMM yyyy")
+
+/**
+ * What a TIDAL list's scrollbar shows beside it, by the list's item index ([skip] header rows
+ * first): the first letters in a name order ([by] Title, Artist or Album), the month added in date
+ * order ([by] Recently added, or the list's own order when that's by date: [ownOrderByDate], as
+ * favorites are), else nothing (a playlist's own order).
+ */
+@Composable
+private fun tidalLabel(items: List<TidalItem>, by: TidalSort.By?, ownOrderByDate: Boolean, skip: Int): (Int) -> String? {
+    val two = items.size > LocalTwoLettersFrom.current
+    return { i ->
+        val item = items.getOrNull(i - skip)
+        when (by) {
+            TidalSort.By.TITLE -> indexLetter(item?.track?.titleKey, two)
+            TidalSort.By.ARTIST -> indexLetter(item?.track?.artistKey, two)
+            TidalSort.By.ALBUM -> indexLetter(item?.track?.albumTitleKey, two)
+            TidalSort.By.ADDED -> addedMonth(item)
+            TidalSort.By.LIST, null -> if (ownOrderByDate) addedMonth(item) else null
+        }
+    }
+}
+
+private fun addedMonth(item: TidalItem?): String? = item?.addedAt?.let {
+    java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).format(ADDED_MONTH)
+}
+
 private fun LazyListScope.listStatus(state: TidalListState, empty: String) {
-    if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) }
-    state.error?.let { item { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) } }
     if (!state.loading && state.error == null && state.items.isEmpty()) item { Missing(empty) }
+}
+
+/**
+ * Above a TIDAL list: how far fetching it has got, why it failed, or that TIDAL has a newer
+ * version, with [onUpdate] to fetch it ([TidalBrowser] doesn't on its own once a list is cached).
+ */
+@Composable
+private fun SyncBar(state: TidalListState, onUpdate: (() -> Unit)?) {
+    when {
+        state.loading -> Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+            val total = state.total
+            if (state.items.isNotEmpty() || state.fetched > 0) {
+                Text(
+                    "Fetching from TIDAL: ${state.fetched}" + (if (total != null) " of $total" else ""),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (total != null && total > 0) {
+                LinearProgressIndicator(progress = { (state.fetched.toFloat() / total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+            } else {
+                LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 4.dp))
+            }
+        }
+        state.error != null -> Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(state.error, Modifier.weight(1f), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            if (onUpdate != null) TextButton(onClick = onUpdate) { Text("Try again") }
+        }
+        state.changed && onUpdate != null -> Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Changed on TIDAL since this copy was fetched.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = onUpdate) { Text("Update") }
+        }
+    }
 }
 
 /** The TIDAL tab: search, and your favorites and playlists. */
@@ -212,8 +298,22 @@ fun TidalTabContent(ui: Ui, playing: String?) {
         val list = browser.tab.list
         LaunchedEffect(list) { browser.load(list) }
         val state = browser.state(list)
-        val shown = if (browser.tab == TidalTab.TRACKS) sorted(ui, state.items) else state.items
-        LazyColumn(Modifier.fillMaxSize()) {
+        val sort by vm.settings.tidalSort.collectAsState()
+        val nameSort by vm.settings.tidalNameSort.collectAsState()
+        val shown = if (browser.tab == TidalTab.TRACKS) sorted(ui, state.items) else remember(state.items, nameSort) { nameSort.apply(state.items) }
+        val lazy = rememberLazyListState()
+        // Item 0 is the Play row (tracks) or the sort row (the rest). Favorites come newest first;
+        // your playlists, most recently changed first (no date to show for that).
+        val two = shown.size > LocalTwoLettersFrom.current
+        val label = when {
+            browser.tab == TidalTab.TRACKS -> tidalLabel(shown, sort.by, ownOrderByDate = true, skip = 1)
+            nameSort.byName -> { i: Int -> indexLetter(shown.getOrNull(i - 1)?.title?.let(::sortKey), two) }
+            browser.tab == TidalTab.PLAYLISTS -> { _: Int -> null }
+            else -> tidalLabel(shown, null, ownOrderByDate = true, skip = 1)
+        }
+        SyncBar(state) { browser.update(list) }
+        FastScrollBox(lazy, label, letters = false) {
+        LazyColumn(Modifier.fillMaxSize(), lazy) {
             if (browser.tab == TidalTab.TRACKS && state.items.isNotEmpty()) {
                 item {
                     val tracks = shown.mapNotNull { it.track }
@@ -228,12 +328,29 @@ fun TidalTabContent(ui: Ui, playing: String?) {
             if (browser.tab == TidalTab.TRACKS) {
                 itemsIndexed(shown, key = { _, it -> it.id }) { i, it -> TidalTrackRow(ui, it, shown, i, playing) }
             } else {
-                items(state.items, key = { it.id }) { TidalEntryRow(ui, it) }
+                if (state.items.isNotEmpty()) {
+                    item {
+                        Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            val (one, many) = when (browser.tab) {
+                                TidalTab.ALBUMS -> "album" to "albums"
+                                TidalTab.ARTISTS -> "artist" to "artists"
+                                else -> "playlist" to "playlists"
+                            }
+                            Text(
+                                "${shown.size} ${if (shown.size == 1) one else many}",
+                                Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TidalNameSortMenu(ui, if (browser.tab == TidalTab.PLAYLISTS) "Recently changed" else "Recently added")
+                        }
+                    }
+                }
+                items(shown, key = { it.id }) { TidalEntryRow(ui, it) }
             }
             listStatus(state, "Nothing here yet.")
             item {
-                TextButton(onClick = { browser.load(list, force = true) }, Modifier.padding(8.dp)) { Text("Reload from TIDAL") }
+                TextButton(onClick = { browser.update(list) }, Modifier.padding(8.dp), enabled = !state.loading) { Text("Update from TIDAL") }
             }
+        }
         }
     }
 }
@@ -252,7 +369,16 @@ fun TidalTracksScreen(ui: Ui, list: TidalList, id: String, playing: String?) {
     // Albums keep their track order.
     val shown = if (list == TidalList.PLAYLIST_TRACKS) sorted(ui, state.items) else state.items
     val tracks = shown.mapNotNull { it.track }
-    LazyColumn(Modifier.fillMaxSize()) {
+    // Albums don't change; a playlist is fetched again only when you ask.
+    val update = if (list == TidalList.PLAYLIST_TRACKS) ({ browser.update(list, id) }) else null
+    val sort by ui.vm.settings.tidalSort.collectAsState()
+    // A playlist as sorted (its own order has nothing to show); an album's track order neither.
+    val label = if (list == TidalList.PLAYLIST_TRACKS) tidalLabel(shown, sort.by, ownOrderByDate = false, skip = if (tracks.isNotEmpty()) 1 else 0) else { _: Int -> null }
+    val lazy = rememberLazyListState()
+    Column(Modifier.fillMaxSize()) {
+    SyncBar(state, update)
+    FastScrollBox(lazy, label, letters = false) {
+    LazyColumn(Modifier.fillMaxSize(), lazy) {
         if (tracks.isNotEmpty()) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -263,7 +389,8 @@ fun TidalTracksScreen(ui: Ui, list: TidalList, id: String, playing: String?) {
                         )
                     }
                     if (list == TidalList.PLAYLIST_TRACKS) TidalSortMenu(ui)
-                    MoreMenu(ui.tidalTrackMenu(tracks, if (list == TidalList.ALBUM_TRACKS) "the album" else "the playlist"))
+                    val updateEntry = if (update != null && !state.loading) listOf("Update from TIDAL" to update) else emptyList()
+                    MoreMenu(ui.tidalTrackMenu(tracks, if (list == TidalList.ALBUM_TRACKS) "the album" else "the playlist") + updateEntry)
                 }
             }
         }
@@ -278,6 +405,8 @@ fun TidalTracksScreen(ui: Ui, list: TidalList, id: String, playing: String?) {
         }
         listStatus(state, "No tracks.")
     }
+    }
+    }
 }
 
 @UnstableApi
@@ -286,9 +415,16 @@ fun TidalArtistScreen(ui: Ui, id: String) {
     val browser = ui.vm.tidalBrowser
     LaunchedEffect(id) { browser.load(TidalList.ARTIST_ALBUMS, id) }
     val state = browser.state(TidalList.ARTIST_ALBUMS, id)
-    LazyColumn(Modifier.fillMaxSize()) {
-        items(state.items, key = { it.id }) { TidalEntryRow(ui, it) }
-        listStatus(state, "No albums.")
+    Column(Modifier.fillMaxSize()) {
+        SyncBar(state, onUpdate = null)
+        // TIDAL's own order (no names or dates to show), but the scrollbar all the same.
+        val lazy = rememberLazyListState()
+        FastScrollBox(lazy, { null }) {
+            LazyColumn(Modifier.fillMaxSize(), lazy) {
+                items(state.items, key = { it.id }) { TidalEntryRow(ui, it) }
+                listStatus(state, "No albums.")
+            }
+        }
     }
 }
 

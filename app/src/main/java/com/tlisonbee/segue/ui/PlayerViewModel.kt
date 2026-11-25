@@ -43,7 +43,7 @@ sealed interface Route {
     data object LastFmStatsPage : Route
 }
 
-enum class HomeTab(val label: String) { ARTISTS("Artists"), ALBUMS("Albums"), SONGS("Songs"), FOLDERS("Folders"), PLAYLISTS("Playlists"), TIDAL("TIDAL") }
+enum class HomeTab(val label: String) { ARTISTS("Artists"), ALBUMS("Albums"), SONGS("Tracks"), FOLDERS("Folders"), PLAYLISTS("Playlists"), TIDAL("TIDAL") }
 
 /** One item of the queue, by its place in the player's playlist. */
 class QueueEntry(val index: Int, val item: MediaItem) {
@@ -133,6 +133,23 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     val tidal = application.app.tidal
     val tidalBrowser = TidalBrowser(viewModelScope, tidal)
 
+    private val placePrefs = application.getSharedPreferences("place", android.content.Context.MODE_PRIVATE)
+
+    init {
+        // Opens where you were in TIDAL last time (TidalPlace), then keeps that up to date.
+        TidalPlace.load(placePrefs)?.takeIf { tidal.state.value.account }?.let { place ->
+            tab = HomeTab.TIDAL
+            tidalBrowser.tab = place.list
+            stack.addAll(place.pages)
+            tidalBrowser.query = place.query
+            if (place.searched) tidalBrowser.runSearch()
+        }
+        viewModelScope.launch {
+            androidx.compose.runtime.snapshotFlow { TidalPlace.of(stack.toList(), tab, tidalBrowser) }
+                .collect { TidalPlace.save(placePrefs, it) }
+        }
+    }
+
     /** Where TIDAL edits run: they finish even if the screen that started them is left. */
     val viewModelScopeForEdits get() = viewModelScope
 
@@ -194,6 +211,18 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     fun next() = controller?.seekToNext()
 
     fun previous() = controller?.seekToPrevious()
+
+    /** Whether there's a track to swipe to: the next one, or (not [forward]) the one before. */
+    fun canSkip(forward: Boolean): Boolean {
+        val c = controller ?: return false
+        return if (forward) c.hasNextMediaItem() else c.hasPreviousMediaItem()
+    }
+
+    /** Straight to the next or previous track, as a swipe on the cover does (Previous restarts a track first). */
+    fun skip(forward: Boolean) {
+        val c = controller ?: return
+        if (forward) c.seekToNextMediaItem() else c.seekToPreviousMediaItem()
+    }
 
     fun seekTo(ms: Long) = controller?.seekTo(ms)
 

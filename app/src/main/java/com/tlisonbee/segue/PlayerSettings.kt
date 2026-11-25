@@ -3,6 +3,7 @@ package com.tlisonbee.segue
 import android.content.Context
 import com.tlisonbee.segue.audio.ReplayGain
 import com.tlisonbee.segue.library.Gains
+import com.tlisonbee.segue.tidal.TidalNameSort
 import com.tlisonbee.segue.tidal.TidalSort
 import com.tlisonbee.segue.ui.Accent
 import com.tlisonbee.segue.ui.ThemeMode
@@ -60,7 +61,19 @@ class PlayerSettings(context: Context) {
         _tidalSort.value = sort
     }
 
-    private val _theme = MutableStateFlow(prefs.getString("theme", null)?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM)
+    private val _tidalNameSort = MutableStateFlow(
+        TidalNameSort(prefs.getBoolean("tidal_name_sort_by_name", false), prefs.getBoolean("tidal_name_sort_reversed", false)),
+    )
+
+    /** How your TIDAL albums, artists and playlists are sorted: one choice for all three. */
+    val tidalNameSort: StateFlow<TidalNameSort> = _tidalNameSort.asStateFlow()
+
+    fun setTidalNameSort(sort: TidalNameSort) {
+        prefs.edit().putBoolean("tidal_name_sort_by_name", sort.byName).putBoolean("tidal_name_sort_reversed", sort.reversed).apply()
+        _tidalNameSort.value = sort
+    }
+
+    private val _theme =MutableStateFlow(prefs.getString("theme", null)?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM)
     val theme: StateFlow<ThemeMode> = _theme.asStateFlow()
 
     fun setTheme(mode: ThemeMode) {
@@ -74,6 +87,19 @@ class PlayerSettings(context: Context) {
     fun setAccent(accent: Accent) {
         prefs.edit().putString("accent", accent.name).apply()
         _accent.value = accent
+    }
+
+    private val _twoLettersFrom = MutableStateFlow(prefs.getInt("two_letters_from", 1000))
+
+    /**
+     * The scrollbar shows two letters ("Sa", "Se", …) on lists with more than this many entries;
+     * one letter on shorter ones. [Int.MAX_VALUE] for never.
+     */
+    val twoLettersFrom: StateFlow<Int> = _twoLettersFrom.asStateFlow()
+
+    fun setTwoLettersFrom(entries: Int) {
+        prefs.edit().putInt("two_letters_from", entries).apply()
+        _twoLettersFrom.value = entries
     }
 
     fun setGainMode(mode: GainMode) {

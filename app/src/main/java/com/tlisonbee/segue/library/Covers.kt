@@ -72,10 +72,21 @@ class Covers(private val dir: File) {
         return Bitmap.createScaledBitmap(bitmap, (bitmap.width * f).toInt().coerceAtLeast(1), (bitmap.height * f).toInt().coerceAtLeast(1), true)
     }
 
+    private fun memoryKey(key: String, sizePx: Int): String {
+        val bucket = if (sizePx <= SIZE / 4) SIZE / 4 else if (sizePx <= SIZE / 2) SIZE / 2 else SIZE
+        return "$key@$bucket"
+    }
+
+    /**
+     * The cover only if it's already in memory: safe on the main thread, so a cover shown again
+     * (the mini player's, as Now Playing shrinks into it) is there in its first frame.
+     */
+    fun cached(key: String, sizePx: Int): Bitmap? = memory.get(memoryKey(key, sizePx))
+
     /** A stored cover at about [sizePx] (at least), from memory when it can. Call off the main thread. */
     fun load(key: String, sizePx: Int): Bitmap? {
         val bucket = if (sizePx <= SIZE / 4) SIZE / 4 else if (sizePx <= SIZE / 2) SIZE / 2 else SIZE
-        val memoryKey = "$key@$bucket"
+        val memoryKey = memoryKey(key, sizePx)
         memory.get(memoryKey)?.let { return it }
         val f = file(key)
         if (!f.isFile) {
