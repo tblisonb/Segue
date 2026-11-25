@@ -53,6 +53,10 @@ class TidalBrowser(private val scope: CoroutineScope, val tidal: Tidal) {
     var searching by mutableStateOf(false)
     var search by mutableStateOf<TidalSearch?>(null)
     var searchError by mutableStateOf<String?>(null)
+
+    /** What the results on screen (or being fetched) are for; null without a search. */
+    var searchedFor by mutableStateOf<String?>(null)
+        private set
     private var searchJob: Job? = null
 
     private val lists = mutableStateMapOf<String, TidalListState>()
@@ -178,11 +182,13 @@ class TidalBrowser(private val scope: CoroutineScope, val tidal: Tidal) {
         val q = query.trim()
         if (q.isEmpty()) {
             search = null
+            searchedFor = null
             return
         }
         searchJob?.cancel()
         searching = true
         searchError = null
+        searchedFor = q
         searchJob = scope.launch {
             try {
                 search = withContext(Dispatchers.IO) { tidal.catalog.search(q) }
@@ -197,6 +203,7 @@ class TidalBrowser(private val scope: CoroutineScope, val tidal: Tidal) {
     fun clearSearch() {
         searchJob?.cancel()
         query = ""
+        searchedFor = null
         search = null
         searchError = null
         searching = false

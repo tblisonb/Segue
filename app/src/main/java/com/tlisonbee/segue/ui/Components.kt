@@ -66,12 +66,15 @@ fun IconAction(@DrawableRes id: Int, description: String, onClick: () -> Unit) =
 @Composable
 fun Cover(covers: Covers, key: String?, size: Dp, modifier: Modifier = Modifier, corner: Dp = 4.dp) {
     val px = with(LocalDensity.current) { size.roundToPx() }
-    val bitmap by produceState<ImageBitmap?>(null, key, px) {
-        value = key?.let { withContext(Dispatchers.IO) { covers.load(it, px)?.asImageBitmap() } }
+    // From memory at once when it's there, so the cover doesn't blink through the placeholder.
+    val inMemory = remember(key, px) { key?.let { covers.cached(it, px)?.asImageBitmap() } }
+    val bitmap by produceState(inMemory, key, px) {
+        // The state outlives a change of cover: set it either way.
+        value = inMemory ?: key?.let { withContext(Dispatchers.IO) { covers.load(it, px)?.asImageBitmap() } }
     }
     val shape = RoundedCornerShape(corner)
     Box(modifier.size(size).clip(shape).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-        val b = bitmap
+        val b = inMemory ?: bitmap
         if (b != null) {
             Image(b, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else {

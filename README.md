@@ -109,8 +109,8 @@ key. A Segue you build yourself works fine, but without the MediaSync link.
 - Swipe the mini player up for **Now Playing**, and swipe down anywhere on Now Playing to close it.
 - Swipe the cover on Now Playing left for the next track, right for the one before. A swipe keeps
   the direction it starts in, so a slanted swipe down still just closes the screen.
-- Scrolling a long list shows a scrollbar on the right; drag it to jump through the list, with the
-  letter you've reached beside it. Lists of more than 1000 entries show two letters ("Sa", "Se");
+- Lists have a scrollbar on the right, in its own narrow strip; drag it to jump through the list,
+  with the letter you've reached beside it. Lists of more than 1000 entries show two letters ("Sa", "Se");
   Settings > Scrollbar changes the length or turns that off.
   Its queue button shows what plays next: a track there can be moved up to play next or
   removed, and the rest cleared.
@@ -123,6 +123,8 @@ key. A Segue you build yourself works fine, but without the MediaSync link.
   list has changed on TIDAL, a "Changed on TIDAL" line offers **Update**, and a playlist's ⋮ menu
   (or the bottom of the TIDAL tab) has **Update from TIDAL**. Lists Segue itself edits update
   straight away.
+- Close Segue while in TIDAL (a list, a search, an album, artist or playlist) and it opens there
+  again next time; the search is run again.
 
 ## Building
 

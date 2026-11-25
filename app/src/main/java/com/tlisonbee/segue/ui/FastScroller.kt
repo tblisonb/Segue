@@ -1,6 +1,5 @@
 package com.tlisonbee.segue.ui
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -32,12 +31,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 /**
@@ -66,16 +63,15 @@ private class Scrolled(
     val firstPart: () -> Float,
     val visible: () -> Int,
     val total: () -> Int,
-    val scrolling: () -> Boolean,
     val scrollTo: suspend (Int) -> Unit,
 )
 
 /**
- * [content] (a lazy list using [state]) with a scrollbar on the right. It shows while the list
- * scrolls and for a moment after; dragging its thumb jumps through the list, showing the letter
- * (or two, on long lists: [LocalTwoLettersFrom]) of the item at the top. [label] gives an item's
- * sort key by the lazy list's item index, headers included (null for those, or where letters
- * mean nothing). Hidden, it takes no touches, so the rows' own buttons at the right edge still work.
+ * [content] (a lazy list using [state]) with a scrollbar on the right, always shown when the list
+ * doesn't fit, in a narrow lane the list leaves free (so it doesn't cover the rows' ⋮ buttons).
+ * Dragging its thumb jumps through the list, showing the letter (or two, on long lists:
+ * [LocalTwoLettersFrom]) of the item at the top. [label] gives an item's sort key by the lazy
+ * list's item index, headers included (null for those, or where letters mean nothing).
  */
 @Composable
 fun FastScrollBox(state: LazyListState, label: (Int) -> String?, modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
@@ -88,7 +84,6 @@ fun FastScrollBox(state: LazyListState, label: (Int) -> String?, modifier: Modif
             },
             visible = { state.layoutInfo.visibleItemsInfo.size },
             total = { state.layoutInfo.totalItemsCount },
-            scrolling = { state.isScrollInProgress },
             scrollTo = { state.scrollToItem(it) },
         )
     }
@@ -105,7 +100,6 @@ fun FastScrollBox(state: LazyGridState, label: (Int) -> String?, modifier: Modif
             firstPart = { 0f },
             visible = { state.layoutInfo.visibleItemsInfo.size },
             total = { state.layoutInfo.totalItemsCount },
-            scrolling = { state.isScrollInProgress },
             scrollTo = { state.scrollToItem(it) },
         )
     }
@@ -113,16 +107,22 @@ fun FastScrollBox(state: LazyGridState, label: (Int) -> String?, modifier: Modif
 }
 
 private val THUMB_HEIGHT = 56.dp
-private val TOUCH_WIDTH = 40.dp
+
+/** The strip on the right the list leaves free for the scrollbar, so the bar never sits on a row. */
+private val LANE = 16.dp
+
+/** How wide the thumb is to the touch: a little into the rows, to be easy to catch. */
+private val TOUCH_WIDTH = 32.dp
 
 @Composable
 private fun FastScrollBox(s: Scrolled, label: (Int) -> String?, modifier: Modifier, content: @Composable BoxScope.() -> Unit) {
     Box(modifier.fillMaxSize()) {
-        content()
+        // The lane is kept whether or not the list is long enough for a bar, so rows don't shift when it is.
+        Box(Modifier.fillMaxSize().padding(end = LANE), content = content)
         val currentLabel by rememberUpdatedState(label)
-        // Only for lists of a few screens or more: short ones scroll quickly enough by hand.
-        val worthIt by remember { derivedStateOf { s.visible() > 0 && s.total() > s.visible() * 3 } }
-        if (!worthIt) return@Box
+        // Always there, as long as the list doesn't fit on the screen.
+        val scrollable by remember { derivedStateOf { s.visible() > 0 && s.total() > s.visible() } }
+        if (!scrollable) return@Box
 
         val density = LocalDensity.current
         val thumbPx = with(density) { THUMB_HEIGHT.toPx() }
@@ -140,13 +140,6 @@ private fun FastScrollBox(s: Scrolled, label: (Int) -> String?, modifier: Modifi
         }
         val thumbY = if (dragging) dragY else listFraction * travel
 
-        var shown by remember { mutableStateOf(false) }
-        val scrolling by remember { derivedStateOf { s.scrolling() } }
-        LaunchedEffect(scrolling, dragging) {
-            if (scrolling || dragging) shown = true else { delay(1500); shown = false }
-        }
-        val alpha by animateFloatAsState(if (shown) 1f else 0f, label = "scrollbar")
-
         // Jumps follow the finger, skipping any it has already moved past.
         LaunchedEffect(s) {
             snapshotFlow { target }.collect { if (it >= 0) s.scrollTo(it) }
@@ -160,30 +153,28 @@ private fun FastScrollBox(s: Scrolled, label: (Int) -> String?, modifier: Modifi
         Box(
             Modifier.align(Alignment.TopEnd).fillMaxHeight().width(TOUCH_WIDTH).onSizeChanged { trackPx = it.height },
         ) {
-            if (alpha > 0f) {
+            Box(
+                Modifier
+                    .offset { IntOffset(0, thumbY.roundToInt()) }
+                    .size(TOUCH_WIDTH, THUMB_HEIGHT)
+                    .draggable(
+                        dragState, Orientation.Vertical,
+                        startDragImmediately = true,
+                        onDragStarted = { dragY = listFraction * travel; dragging = true },
+                        onDragStopped = { dragging = false; target = -1 },
+                    ),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                // Centred in the lane.
                 Box(
                     Modifier
-                        .offset { IntOffset(0, thumbY.roundToInt()) }
-                        .size(TOUCH_WIDTH, THUMB_HEIGHT)
-                        .alpha(alpha)
-                        .draggable(
-                            dragState, Orientation.Vertical, enabled = shown,
-                            startDragImmediately = true,
-                            onDragStarted = { dragY = listFraction * travel; dragging = true },
-                            onDragStopped = { dragging = false; target = -1 },
+                        .padding(end = (LANE - 8.dp) / 2 + (if (dragging) 0.dp else 1.dp))
+                        .size(if (dragging) 8.dp else 6.dp, THUMB_HEIGHT)
+                        .background(
+                            if (dragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            RoundedCornerShape(4.dp),
                         ),
-                    contentAlignment = Alignment.CenterEnd,
-                ) {
-                    Box(
-                        Modifier
-                            .padding(end = 4.dp)
-                            .size(if (dragging) 8.dp else 6.dp, THUMB_HEIGHT)
-                            .background(
-                                if (dragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                RoundedCornerShape(4.dp),
-                            ),
-                    )
-                }
+                )
             }
         }
 
