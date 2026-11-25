@@ -159,9 +159,39 @@ private fun sorted(ui: Ui, items: List<TidalItem>): List<TidalItem> {
 }
 
 private fun LazyListScope.listStatus(state: TidalListState, empty: String) {
-    if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) }
-    state.error?.let { item { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) } }
     if (!state.loading && state.error == null && state.items.isEmpty()) item { Missing(empty) }
+}
+
+/**
+ * Above a TIDAL list: how far fetching it has got, why it failed, or that TIDAL has a newer
+ * version, with [onUpdate] to fetch it ([TidalBrowser] doesn't on its own once a list is cached).
+ */
+@Composable
+private fun SyncBar(state: TidalListState, onUpdate: (() -> Unit)?) {
+    when {
+        state.loading -> Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+            val total = state.total
+            if (state.items.isNotEmpty() || state.fetched > 0) {
+                Text(
+                    "Fetching from TIDAL: ${state.fetched}" + (if (total != null) " of $total" else ""),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (total != null && total > 0) {
+                LinearProgressIndicator(progress = { (state.fetched.toFloat() / total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+            } else {
+                LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 4.dp))
+            }
+        }
+        state.error != null -> Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(state.error, Modifier.weight(1f), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            if (onUpdate != null) TextButton(onClick = onUpdate) { Text("Try again") }
+        }
+        state.changed && onUpdate != null -> Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Changed on TIDAL since this copy was fetched.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = onUpdate) { Text("Update") }
+        }
+    }
 }
 
 /** The TIDAL tab: search, and your favorites and playlists. */
@@ -226,6 +256,7 @@ fun TidalTabContent(ui: Ui, playing: String?) {
                 else -> null
             }
         }
+        SyncBar(state) { browser.update(list) }
         FastScrollBox(lazy, label) {
         LazyColumn(Modifier.fillMaxSize(), lazy) {
             if (browser.tab == TidalTab.TRACKS && state.items.isNotEmpty()) {
@@ -246,7 +277,7 @@ fun TidalTabContent(ui: Ui, playing: String?) {
             }
             listStatus(state, "Nothing here yet.")
             item {
-                TextButton(onClick = { browser.load(list, force = true) }, Modifier.padding(8.dp)) { Text("Reload from TIDAL") }
+                TextButton(onClick = { browser.update(list) }, Modifier.padding(8.dp), enabled = !state.loading) { Text("Update from TIDAL") }
             }
         }
         }
@@ -267,6 +298,10 @@ fun TidalTracksScreen(ui: Ui, list: TidalList, id: String, playing: String?) {
     // Albums keep their track order.
     val shown = if (list == TidalList.PLAYLIST_TRACKS) sorted(ui, state.items) else state.items
     val tracks = shown.mapNotNull { it.track }
+    // Albums don't change; a playlist is fetched again only when you ask.
+    val update = if (list == TidalList.PLAYLIST_TRACKS) ({ browser.update(list, id) }) else null
+    Column(Modifier.fillMaxSize()) {
+    SyncBar(state, update)
     LazyColumn(Modifier.fillMaxSize()) {
         if (tracks.isNotEmpty()) {
             item {
@@ -278,7 +313,8 @@ fun TidalTracksScreen(ui: Ui, list: TidalList, id: String, playing: String?) {
                         )
                     }
                     if (list == TidalList.PLAYLIST_TRACKS) TidalSortMenu(ui)
-                    MoreMenu(ui.tidalTrackMenu(tracks, if (list == TidalList.ALBUM_TRACKS) "the album" else "the playlist"))
+                    val updateEntry = if (update != null && !state.loading) listOf("Update from TIDAL" to update) else emptyList()
+                    MoreMenu(ui.tidalTrackMenu(tracks, if (list == TidalList.ALBUM_TRACKS) "the album" else "the playlist") + updateEntry)
                 }
             }
         }
@@ -293,6 +329,7 @@ fun TidalTracksScreen(ui: Ui, list: TidalList, id: String, playing: String?) {
         }
         listStatus(state, "No tracks.")
     }
+    }
 }
 
 @UnstableApi
@@ -301,9 +338,12 @@ fun TidalArtistScreen(ui: Ui, id: String) {
     val browser = ui.vm.tidalBrowser
     LaunchedEffect(id) { browser.load(TidalList.ARTIST_ALBUMS, id) }
     val state = browser.state(TidalList.ARTIST_ALBUMS, id)
-    LazyColumn(Modifier.fillMaxSize()) {
-        items(state.items, key = { it.id }) { TidalEntryRow(ui, it) }
-        listStatus(state, "No albums.")
+    Column(Modifier.fillMaxSize()) {
+        SyncBar(state, onUpdate = null)
+        LazyColumn(Modifier.fillMaxSize()) {
+            items(state.items, key = { it.id }) { TidalEntryRow(ui, it) }
+            listStatus(state, "No albums.")
+        }
     }
 }
 

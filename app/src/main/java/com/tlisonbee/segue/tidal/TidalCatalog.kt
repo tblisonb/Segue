@@ -105,27 +105,22 @@ class TidalCatalog(private val account: TidalSession) {
         return request("GET", path, query)
     }
 
-    /** Every page of a list as TIDAL sent it; [onPage] sees the items so far. */
-    fun allDocuments(list: TidalList, id: String? = null, onPage: (List<TidalItem>) -> Unit = {}): List<JsonObject> {
-        val docs = mutableListOf<JsonObject>()
-        val items = mutableListOf<TidalItem>()
-        var cursor: String? = null
-        do {
-            val doc = pageDocument(list, id, cursor)
-            docs += doc
-            val page = parsePage(doc)
-            items += page.items
-            onPage(items.toList())
-            cursor = page.nextCursor
-        } while (cursor != null)
-        return docs
-    }
+    /**
+     * Every page of a list as TIDAL sent it, several at a time where it can be ([TidalPaging]);
+     * [count] is the list's size if known. [onPages] sees the pages so far. Blocking calls inside:
+     * run it on the IO dispatcher.
+     */
+    suspend fun allDocuments(list: TidalList, id: String? = null, count: Int? = null, onPages: (List<JsonObject>) -> Unit = {}): List<JsonObject> =
+        TidalPaging.all(count, { cursor -> pageDocument(list, id, cursor) }, onProgress = onPages)
+
+    /** A list's version (to tell whether a cached copy is still right) and its size. */
+    class ListVersion(val key: String, val count: Int?)
 
     /**
-     * What a list's version is now, to tell whether a cached copy is still right; null for lists
-     * without one (albums don't change; an artist's albums are fetched again after a day).
+     * What a list's version is now; null for lists without one (albums don't change; an artist's
+     * albums are fetched again after a day).
      */
-    fun version(list: TidalList, id: String?): String? {
+    fun version(list: TidalList, id: String?): ListVersion? {
         val path = when (list) {
             TidalList.FAVORITE_TRACKS -> "/userCollectionTracks/me"
             TidalList.FAVORITE_ALBUMS -> "/userCollectionAlbums/me"
@@ -135,12 +130,13 @@ class TidalCatalog(private val account: TidalSession) {
             TidalList.ALBUM_TRACKS, TidalList.ARTIST_ALBUMS -> return null
         }
         val attrs = request("GET", path).obj("data")?.obj("attributes")
-        var version = "${attrs?.string("lastModifiedAt")}/${attrs?.get("numberOfItems") ?: attrs?.get("numberOfTrackItems")}"
+        val count = attrs?.get("numberOfItems") ?: attrs?.get("numberOfTrackItems")
+        var version = "${attrs?.string("lastModifiedAt")}/$count"
         if (list == TidalList.PLAYLISTS) {
             // Each playlist's track count shows in the list, and an edited playlist comes first: the first page counts too.
             version += ";" + page(list, null, null).items.joinToString(";") { "${it.id}@${it.info}" }.hashCode()
         }
-        return version
+        return ListVersion(version, (count as? JsonPrimitive)?.intOrNull)
     }
 
     /** Every page of a list. */

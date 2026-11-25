@@ -223,8 +223,16 @@ learned about the APIs):
   (search by artist and title; same title, artist and length within 3 s; the same album first),
   and the message says which weren't found.
 - **A disk cache** (`TidalCache`, `files/tidal/cache/<user>/`): lists as TIDAL sent them, shown at
-  once; after a minute, one request (`numberOfItems`/`lastModifiedAt`) says whether to fetch them
-  again. Albums don't change; an artist's albums are fetched again after a day.
+  once. A cached list is fetched again only when you ask (Update from TIDAL) or after an edit
+  Segue made to it; showing it (at most once a minute) sends one request
+  (`numberOfItems`/`lastModifiedAt`) just to say "Changed on TIDAL". A failed check changes
+  nothing. While a list updates, the old copy stays on screen and plays in full. Albums don't
+  change; an artist's albums are fetched again after a day.
+- **Fetching a list** (`TidalPaging`): TIDAL pages by 20 and the API has no page size parameter
+  (only `page[cursor]`, checked against the OpenAPI spec 1.10.263, 2026-11-25). The cursors seen
+  are offsets ("20", "40", …), so when the first page's is one and `numberOfItems` is known, the
+  other pages are fetched 4 at a time, each checked against where the one before pointed; at the
+  first that doesn't fit, the rest go one after another as before.
 - **TIDAL tracks in Segue's playlists**: written as `tidal://track/<id>` lines with their
   `#EXTINF`, as the fooyin plugin writes them, so a playlist synced through MediaSync plays the
   same TIDAL tracks in both. A TIDAL track Segue hasn't seen comes from its `#EXTINF` line.
