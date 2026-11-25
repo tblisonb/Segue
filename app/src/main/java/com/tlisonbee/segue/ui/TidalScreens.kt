@@ -158,6 +158,33 @@ private fun sorted(ui: Ui, items: List<TidalItem>): List<TidalItem> {
     return remember(items, sort) { sort.apply(items) }
 }
 
+private val ADDED_MONTH = java.time.format.DateTimeFormatter.ofPattern("MMM yyyy")
+
+/**
+ * What a TIDAL list's scrollbar shows beside it, by the list's item index ([skip] header rows
+ * first): the first letters in a name order ([by] Title, Artist or Album), the month added in date
+ * order ([by] Recently added, or the list's own order when that's by date: [ownOrderByDate], as
+ * favorites are), else nothing (a playlist's own order).
+ */
+@Composable
+private fun tidalLabel(items: List<TidalItem>, by: TidalSort.By?, ownOrderByDate: Boolean, skip: Int): (Int) -> String? {
+    val two = items.size > LocalTwoLettersFrom.current
+    return { i ->
+        val item = items.getOrNull(i - skip)
+        when (by) {
+            TidalSort.By.TITLE -> indexLetter(item?.track?.titleKey, two)
+            TidalSort.By.ARTIST -> indexLetter(item?.track?.artistKey, two)
+            TidalSort.By.ALBUM -> indexLetter(item?.track?.albumTitleKey, two)
+            TidalSort.By.ADDED -> addedMonth(item)
+            TidalSort.By.LIST, null -> if (ownOrderByDate) addedMonth(item) else null
+        }
+    }
+}
+
+private fun addedMonth(item: TidalItem?): String? = item?.addedAt?.let {
+    java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).format(ADDED_MONTH)
+}
+
 private fun LazyListScope.listStatus(state: TidalListState, empty: String) {
     if (!state.loading && state.error == null && state.items.isEmpty()) item { Missing(empty) }
 }
@@ -246,18 +273,14 @@ fun TidalTabContent(ui: Ui, playing: String?) {
         val shown = if (browser.tab == TidalTab.TRACKS) sorted(ui, state.items) else state.items
         val sort by vm.settings.tidalSort.collectAsState()
         val lazy = rememberLazyListState()
-        // Letters only for tracks in a name order (item 0 is the Play row); TIDAL's own orders just get the scrollbar.
-        val label = { i: Int ->
-            val t = if (browser.tab == TidalTab.TRACKS) shown.getOrNull(i - 1)?.track else null
-            when (sort.by) {
-                TidalSort.By.TITLE -> t?.titleKey
-                TidalSort.By.ARTIST -> t?.artistKey
-                TidalSort.By.ALBUM -> t?.albumTitleKey
-                else -> null
-            }
+        // Favorites come newest first; your playlists, most recently changed first (no date to show).
+        val label = when (browser.tab) {
+            TidalTab.TRACKS -> tidalLabel(shown, sort.by, ownOrderByDate = true, skip = 1) // item 0 is the Play row
+            TidalTab.ALBUMS, TidalTab.ARTISTS -> tidalLabel(shown, null, ownOrderByDate = true, skip = 0)
+            TidalTab.PLAYLISTS -> { _: Int -> null }
         }
         SyncBar(state) { browser.update(list) }
-        FastScrollBox(lazy, label) {
+        FastScrollBox(lazy, label, letters = false) {
         LazyColumn(Modifier.fillMaxSize(), lazy) {
             if (browser.tab == TidalTab.TRACKS && state.items.isNotEmpty()) {
                 item {
@@ -300,9 +323,14 @@ fun TidalTracksScreen(ui: Ui, list: TidalList, id: String, playing: String?) {
     val tracks = shown.mapNotNull { it.track }
     // Albums don't change; a playlist is fetched again only when you ask.
     val update = if (list == TidalList.PLAYLIST_TRACKS) ({ browser.update(list, id) }) else null
+    val sort by ui.vm.settings.tidalSort.collectAsState()
+    // A playlist as sorted (its own order has nothing to show); an album's track order neither.
+    val label = if (list == TidalList.PLAYLIST_TRACKS) tidalLabel(shown, sort.by, ownOrderByDate = false, skip = if (tracks.isNotEmpty()) 1 else 0) else { _: Int -> null }
+    val lazy = rememberLazyListState()
     Column(Modifier.fillMaxSize()) {
     SyncBar(state, update)
-    LazyColumn(Modifier.fillMaxSize()) {
+    FastScrollBox(lazy, label, letters = false) {
+    LazyColumn(Modifier.fillMaxSize(), lazy) {
         if (tracks.isNotEmpty()) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -330,6 +358,7 @@ fun TidalTracksScreen(ui: Ui, list: TidalList, id: String, playing: String?) {
         listStatus(state, "No tracks.")
     }
     }
+    }
 }
 
 @UnstableApi
@@ -340,9 +369,13 @@ fun TidalArtistScreen(ui: Ui, id: String) {
     val state = browser.state(TidalList.ARTIST_ALBUMS, id)
     Column(Modifier.fillMaxSize()) {
         SyncBar(state, onUpdate = null)
-        LazyColumn(Modifier.fillMaxSize()) {
-            items(state.items, key = { it.id }) { TidalEntryRow(ui, it) }
-            listStatus(state, "No albums.")
+        // TIDAL's own order (no names or dates to show), but the scrollbar all the same.
+        val lazy = rememberLazyListState()
+        FastScrollBox(lazy, { null }) {
+            LazyColumn(Modifier.fillMaxSize(), lazy) {
+                items(state.items, key = { it.id }) { TidalEntryRow(ui, it) }
+                listStatus(state, "No albums.")
+            }
         }
     }
 }

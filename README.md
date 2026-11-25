@@ -110,7 +110,8 @@ key. A Segue you build yourself works fine, but without the MediaSync link.
 - Swipe the cover on Now Playing left for the next track, right for the one before. A swipe keeps
   the direction it starts in, so a slanted swipe down still just closes the screen.
 - Lists have a scrollbar on the right, in its own narrow strip; drag it to jump through the list,
-  with the letter you've reached beside it. Lists of more than 1000 entries show two letters ("Sa", "Se");
+  with the letter you've reached beside it. TIDAL lists in the order you added things (your
+  favorites, or anything sorted by Recently added) show the month instead. Lists of more than 1000 entries show two letters ("Sa", "Se");
   Settings > Scrollbar changes the length or turns that off.
   Its queue button shows what plays next: a track there can be moved up to play next or
   removed, and the rest cleared.

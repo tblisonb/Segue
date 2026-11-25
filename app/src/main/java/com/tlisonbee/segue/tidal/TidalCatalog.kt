@@ -279,8 +279,9 @@ class TidalCatalog(private val account: TidalSession) {
         private fun items(links: JsonArray, included: Included): List<TidalItem> = included.resolve(links).mapNotNull { r ->
             when (r.string("type")) {
                 "tracks" -> trackItem(r, included)
-                "albums" -> albumItem(r, included)
-                "artists" -> TidalItem(TidalItem.Kind.ARTIST, r.string("id")!!, r.attrs()?.string("name").orEmpty())
+                // Favorites carry when they were added, as tracks do.
+                "albums" -> albumItem(r, included).copy(addedAt = addedAt(r.obj("linkMeta")))
+                "artists" -> TidalItem(TidalItem.Kind.ARTIST, r.string("id")!!, r.attrs()?.string("name").orEmpty(), addedAt = addedAt(r.obj("linkMeta")))
                 "playlists" -> playlistItem(r, included)
                 else -> null // videos
             }

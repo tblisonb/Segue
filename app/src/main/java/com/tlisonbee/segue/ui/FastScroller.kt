@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -74,7 +76,7 @@ private class Scrolled(
  * list's item index, headers included (null for those, or where letters mean nothing).
  */
 @Composable
-fun FastScrollBox(state: LazyListState, label: (Int) -> String?, modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+fun FastScrollBox(state: LazyListState, label: (Int) -> String?, modifier: Modifier = Modifier, letters: Boolean = true, content: @Composable BoxScope.() -> Unit) {
     val scrolled = remember(state) {
         Scrolled(
             first = { state.firstVisibleItemIndex },
@@ -87,12 +89,12 @@ fun FastScrollBox(state: LazyListState, label: (Int) -> String?, modifier: Modif
             scrollTo = { state.scrollToItem(it) },
         )
     }
-    FastScrollBox(scrolled, label, modifier, content)
+    FastScrollBox(scrolled, label, modifier, letters, content)
 }
 
 /** [FastScrollBox] for a grid: the album covers. */
 @Composable
-fun FastScrollBox(state: LazyGridState, label: (Int) -> String?, modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+fun FastScrollBox(state: LazyGridState, label: (Int) -> String?, modifier: Modifier = Modifier, letters: Boolean = true, content: @Composable BoxScope.() -> Unit) {
     val scrolled = remember(state) {
         Scrolled(
             first = { state.firstVisibleItemIndex },
@@ -103,7 +105,7 @@ fun FastScrollBox(state: LazyGridState, label: (Int) -> String?, modifier: Modif
             scrollTo = { state.scrollToItem(it) },
         )
     }
-    FastScrollBox(scrolled, label, modifier, content)
+    FastScrollBox(scrolled, label, modifier, letters, content)
 }
 
 private val THUMB_HEIGHT = 56.dp
@@ -115,7 +117,7 @@ private val LANE = 16.dp
 private val TOUCH_WIDTH = 32.dp
 
 @Composable
-private fun FastScrollBox(s: Scrolled, label: (Int) -> String?, modifier: Modifier, content: @Composable BoxScope.() -> Unit) {
+private fun FastScrollBox(s: Scrolled, label: (Int) -> String?, modifier: Modifier, letters: Boolean, content: @Composable BoxScope.() -> Unit) {
     Box(modifier.fillMaxSize()) {
         // The lane is kept whether or not the list is long enough for a bar, so rows don't shift when it is.
         Box(Modifier.fillMaxSize().padding(end = LANE), content = content)
@@ -182,7 +184,7 @@ private fun FastScrollBox(s: Scrolled, label: (Int) -> String?, modifier: Modifi
             // The first labelled item on screen: lists start with a header or two (Play, New playlist…).
             val two = s.total() > LocalTwoLettersFrom.current
             val letter = remember(s.first(), s.visible(), two) {
-                (s.first() until s.first() + s.visible().coerceAtLeast(1)).firstNotNullOfOrNull { indexLetter(currentLabel(it), two) }
+                (s.first() until s.first() + s.visible().coerceAtLeast(1)).firstNotNullOfOrNull { if (letters) indexLetter(currentLabel(it), two) else currentLabel(it) }
             }
             if (letter != null) {
                 val bubble = 64.dp
@@ -191,11 +193,18 @@ private fun FastScrollBox(s: Scrolled, label: (Int) -> String?, modifier: Modifi
                     Modifier
                         .align(Alignment.TopEnd)
                         .offset { IntOffset(-with(density) { (TOUCH_WIDTH + 8.dp).roundToPx() }, bubbleY.roundToInt()) }
-                        .size(bubble)
-                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp, bottomStart = 32.dp, bottomEnd = 4.dp)),
+                        // Wider for a longer label (a date: "Mar 2025").
+                        .height(bubble)
+                        .widthIn(min = bubble)
+                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp, bottomStart = 32.dp, bottomEnd = 4.dp))
+                        .padding(horizontal = 16.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(letter, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(
+                        letter, maxLines = 1,
+                        style = if (letter.length <= 2) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
                 }
             }
         }

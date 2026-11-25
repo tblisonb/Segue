@@ -43,7 +43,7 @@ sealed interface Route {
     data object LastFmStatsPage : Route
 }
 
-enum class HomeTab(val label: String) { ARTISTS("Artists"), ALBUMS("Albums"), SONGS("Songs"), FOLDERS("Folders"), PLAYLISTS("Playlists"), TIDAL("TIDAL") }
+enum class HomeTab(val label: String) { ARTISTS("Artists"), ALBUMS("Albums"), SONGS("Tracks"), FOLDERS("Folders"), PLAYLISTS("Playlists"), TIDAL("TIDAL") }
 
 /** One item of the queue, by its place in the player's playlist. */
 class QueueEntry(val index: Int, val item: MediaItem) {
