@@ -21,6 +21,21 @@ class TidalSortTest {
     private fun ids(sort: TidalSort) = sort.apply(list).joinToString("") { it.id }
 
     @Test
+    fun albumsArtistsAndPlaylistsByName() {
+        val albums = listOf(
+            TidalItem(TidalItem.Kind.ALBUM, "1", "Toto IV", "Toto"),
+            TidalItem(TidalItem.Kind.ALBUM, "2", "The Bends", "Radiohead"),
+            TidalItem(TidalItem.Kind.ALBUM, "3", "Abbey Road", "The Beatles"),
+        )
+        fun ids(sort: TidalNameSort) = sort.apply(albums).joinToString("") { it.id }
+        assertEquals("123", ids(TidalNameSort()))
+        assertEquals("321", ids(TidalNameSort(reversed = true)))
+        // "The Bends" files under B, as in the library: Abbey Road, The Bends, Toto IV.
+        assertEquals("321", ids(TidalNameSort(byName = true)))
+        assertEquals("123", ids(TidalNameSort(byName = true, reversed = true)))
+    }
+
+    @Test
     fun orders() {
         assertEquals("abcd", ids(TidalSort()))
         assertEquals("bacd", ids(TidalSort(TidalSort.By.ADDED)))

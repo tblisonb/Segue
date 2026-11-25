@@ -119,7 +119,8 @@ key. A Segue you build yourself works fine, but without the MediaSync link.
   you're logged in to TIDAL, it also has Add to TIDAL playlist and Add to or Remove from TIDAL
   favorites. Your own files are matched to TIDAL tracks by artist, title and length.
 - TIDAL playlists and your favorite tracks can be sorted with the button next to Play and
-  Shuffle. One sort applies to all of them.
+  Shuffle. One sort applies to all of them. Your TIDAL albums, artists and playlists have their
+  own sort button (TIDAL's order or by name), one for all three.
 - TIDAL lists are kept on the phone once fetched and aren't fetched again on their own: when a
   list has changed on TIDAL, a "Changed on TIDAL" line offers **Update**, and a playlist's ⋮ menu
   (or the bottom of the TIDAL tab) has **Update from TIDAL**. Lists Segue itself edits update

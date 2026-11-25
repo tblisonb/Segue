@@ -56,6 +56,7 @@ import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
 import com.tlisonbee.segue.R
 import com.tlisonbee.segue.library.Track
+import com.tlisonbee.segue.library.sortKey
 import com.tlisonbee.segue.tidal.TidalItem
 import com.tlisonbee.segue.tidal.TidalSort
 import com.tlisonbee.segue.tidal.TidalList
@@ -145,6 +146,33 @@ private fun TidalSortMenu(ui: Ui) {
                 text = { Text("Reverse") },
                 leadingIcon = { Checkbox(checked = sort.reversed, onCheckedChange = null) },
                 onClick = { open = false; settings.setTidalSort(sort.copy(reversed = !sort.reversed)) },
+            )
+        }
+    }
+}
+
+/** The sort menu for your TIDAL albums, artists and playlists: TIDAL's order ([ownOrder]) or by name. */
+@UnstableApi
+@Composable
+private fun TidalNameSortMenu(ui: Ui, ownOrder: String) {
+    val settings = ui.vm.settings
+    val sort by settings.tidalNameSort.collectAsState()
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconAction(R.drawable.ic_sort, "Sort") { open = true }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            for ((label, byName) in listOf(ownOrder to false, "Name" to true)) {
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    leadingIcon = { RadioButton(selected = sort.byName == byName, onClick = null) },
+                    onClick = { open = false; settings.setTidalNameSort(sort.copy(byName = byName)) },
+                )
+            }
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Reverse") },
+                leadingIcon = { Checkbox(checked = sort.reversed, onCheckedChange = null) },
+                onClick = { open = false; settings.setTidalNameSort(sort.copy(reversed = !sort.reversed)) },
             )
         }
     }
@@ -270,14 +298,18 @@ fun TidalTabContent(ui: Ui, playing: String?) {
         val list = browser.tab.list
         LaunchedEffect(list) { browser.load(list) }
         val state = browser.state(list)
-        val shown = if (browser.tab == TidalTab.TRACKS) sorted(ui, state.items) else state.items
         val sort by vm.settings.tidalSort.collectAsState()
+        val nameSort by vm.settings.tidalNameSort.collectAsState()
+        val shown = if (browser.tab == TidalTab.TRACKS) sorted(ui, state.items) else remember(state.items, nameSort) { nameSort.apply(state.items) }
         val lazy = rememberLazyListState()
-        // Favorites come newest first; your playlists, most recently changed first (no date to show).
-        val label = when (browser.tab) {
-            TidalTab.TRACKS -> tidalLabel(shown, sort.by, ownOrderByDate = true, skip = 1) // item 0 is the Play row
-            TidalTab.ALBUMS, TidalTab.ARTISTS -> tidalLabel(shown, null, ownOrderByDate = true, skip = 0)
-            TidalTab.PLAYLISTS -> { _: Int -> null }
+        // Item 0 is the Play row (tracks) or the sort row (the rest). Favorites come newest first;
+        // your playlists, most recently changed first (no date to show for that).
+        val two = shown.size > LocalTwoLettersFrom.current
+        val label = when {
+            browser.tab == TidalTab.TRACKS -> tidalLabel(shown, sort.by, ownOrderByDate = true, skip = 1)
+            nameSort.byName -> { i: Int -> indexLetter(shown.getOrNull(i - 1)?.title?.let(::sortKey), two) }
+            browser.tab == TidalTab.PLAYLISTS -> { _: Int -> null }
+            else -> tidalLabel(shown, null, ownOrderByDate = true, skip = 1)
         }
         SyncBar(state) { browser.update(list) }
         FastScrollBox(lazy, label, letters = false) {
@@ -296,7 +328,23 @@ fun TidalTabContent(ui: Ui, playing: String?) {
             if (browser.tab == TidalTab.TRACKS) {
                 itemsIndexed(shown, key = { _, it -> it.id }) { i, it -> TidalTrackRow(ui, it, shown, i, playing) }
             } else {
-                items(state.items, key = { it.id }) { TidalEntryRow(ui, it) }
+                if (state.items.isNotEmpty()) {
+                    item {
+                        Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            val (one, many) = when (browser.tab) {
+                                TidalTab.ALBUMS -> "album" to "albums"
+                                TidalTab.ARTISTS -> "artist" to "artists"
+                                else -> "playlist" to "playlists"
+                            }
+                            Text(
+                                "${shown.size} ${if (shown.size == 1) one else many}",
+                                Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TidalNameSortMenu(ui, if (browser.tab == TidalTab.PLAYLISTS) "Recently changed" else "Recently added")
+                        }
+                    }
+                }
+                items(shown, key = { it.id }) { TidalEntryRow(ui, it) }
             }
             listStatus(state, "Nothing here yet.")
             item {
