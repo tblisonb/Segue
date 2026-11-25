@@ -107,6 +107,10 @@ key. A Segue you build yourself works fine, but without the MediaSync link.
 
 - Tap a track to play its list from that track.
 - Swipe the mini player up for **Now Playing**, and swipe down anywhere on Now Playing to close it.
+- Swipe the cover on Now Playing left for the next track, right for the one before. A swipe keeps
+  the direction it starts in, so a slanted swipe down still just closes the screen.
+- Scrolling a long list shows a scrollbar on the right; drag it to jump through the list, with the
+  letter you've reached beside it.
   Its queue button shows what plays next: a track there can be moved up to play next or
   removed, and the rest cleared.
 - Every track's menu has Play next, Add to queue, Add to playlist and Go to album or artist. When

@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -213,7 +214,20 @@ fun TidalTabContent(ui: Ui, playing: String?) {
         LaunchedEffect(list) { browser.load(list) }
         val state = browser.state(list)
         val shown = if (browser.tab == TidalTab.TRACKS) sorted(ui, state.items) else state.items
-        LazyColumn(Modifier.fillMaxSize()) {
+        val sort by vm.settings.tidalSort.collectAsState()
+        val lazy = rememberLazyListState()
+        // Letters only for tracks in a name order (item 0 is the Play row); TIDAL's own orders just get the scrollbar.
+        val label = { i: Int ->
+            val t = if (browser.tab == TidalTab.TRACKS) shown.getOrNull(i - 1)?.track else null
+            when (sort.by) {
+                TidalSort.By.TITLE -> indexLetter(t?.titleKey)
+                TidalSort.By.ARTIST -> indexLetter(t?.artistKey)
+                TidalSort.By.ALBUM -> indexLetter(t?.albumTitleKey)
+                else -> null
+            }
+        }
+        FastScrollBox(lazy, label) {
+        LazyColumn(Modifier.fillMaxSize(), lazy) {
             if (browser.tab == TidalTab.TRACKS && state.items.isNotEmpty()) {
                 item {
                     val tracks = shown.mapNotNull { it.track }
@@ -234,6 +248,7 @@ fun TidalTabContent(ui: Ui, playing: String?) {
             item {
                 TextButton(onClick = { browser.load(list, force = true) }, Modifier.padding(8.dp)) { Text("Reload from TIDAL") }
             }
+        }
         }
     }
 }

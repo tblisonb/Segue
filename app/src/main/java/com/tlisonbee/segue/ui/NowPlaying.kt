@@ -16,6 +16,19 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import kotlin.math.abs
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.unit.Velocity
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -157,7 +170,15 @@ fun NowPlayingScreen(ui: Ui, state: PlaybackState, data: LibraryData, transition
     val drag = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val closeAt = with(LocalDensity.current) { 120.dp.toPx() }
-    val dragState = rememberDraggableState { delta -> scope.launch { drag.snapTo((drag.value + delta).coerceAtLeast(0f)) } }
+    val pullDown = { delta: Float -> scope.launch { drag.snapTo((drag.value + delta).coerceAtLeast(0f)) }; Unit }
+    val letGo = { velocity: Float ->
+        if (drag.value > closeAt || velocity > 1500f) vm.nowPlayingOpen = false else scope.launch { drag.animateTo(0f) }
+        Unit
+    }
+    val dragState = rememberDraggableState { delta -> pullDown(delta) }
+    // The cover slides sideways with the finger; far or fast enough and it changes track.
+    val slide = remember { Animatable(0f) }
+    val playingId by rememberUpdatedState(item?.mediaId)
     Surface(
         Modifier
             // Before the shared container, so closing starts from where the finger left it.
@@ -166,9 +187,7 @@ fun NowPlayingScreen(ui: Ui, state: PlaybackState, data: LibraryData, transition
             .fillMaxSize()
             .draggable(
                 dragState, Orientation.Vertical, enabled = !vm.queueOpen,
-                onDragStopped = { velocity ->
-                    if (drag.value > closeAt || velocity > 1500f) vm.nowPlayingOpen = false else scope.launch { drag.animateTo(0f) }
-                },
+                onDragStopped = { velocity -> letGo(velocity) },
             ),
     ) {
         Column(Modifier.safeDrawingPadding().fillMaxSize()) {
@@ -189,8 +208,52 @@ fun NowPlayingScreen(ui: Ui, state: PlaybackState, data: LibraryData, transition
             if (vm.queueOpen) {
                 QueueList(ui, state, data, Modifier.weight(1f))
             } else {
-                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                    Cover(ui.covers, track?.cover, min(maxWidth, maxHeight), Modifier.cover(), corner = 12.dp)
+                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    val width = constraints.maxWidth.toFloat()
+                    val coverSize = (min(maxWidth, maxHeight) - 48.dp).coerceAtLeast(0.dp)
+                    Box(
+                        Modifier.fillMaxSize().coverSwipe(
+                            sideways = { delta ->
+                                // Heavy going where there's no track to go to.
+                                val forward = slide.value + delta < 0
+                                val give = if (vm.canSkip(forward)) 1f else 0.25f
+                                scope.launch { slide.snapTo(slide.value + delta * give) }
+                            },
+                            sidewaysEnd = { velocity ->
+                                val forward = slide.value < 0
+                                val far = abs(slide.value) > width / 4
+                                val flung = abs(velocity) > 1200f && (velocity < 0) == forward
+                                scope.launch {
+                                    if ((far || flung) && slide.value != 0f && vm.canSkip(forward)) {
+                                        val out = if (forward) -width else width
+                                        slide.animateTo(out, tween(150))
+                                        val before = playingId
+                                        vm.skip(forward)
+                                        // Comes back in from the other side once the new track is the one showing.
+                                        withTimeoutOrNull(600) { snapshotFlow { playingId }.first { it != before } }
+                                        slide.snapTo(-out)
+                                        slide.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
+                                    } else {
+                                        slide.animateTo(0f)
+                                    }
+                                }
+                            },
+                            down = pullDown,
+                            downEnd = letGo,
+                        ).padding(24.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Cover(
+                            ui.covers, track?.cover, coverSize,
+                            Modifier
+                                .graphicsLayer {
+                                    translationX = slide.value
+                                    alpha = 1f - (abs(slide.value) / width).coerceIn(0f, 1f) * 0.6f
+                                }
+                                .cover(),
+                            corner = 12.dp,
+                        )
+                    }
                 }
                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
                     Text(item.mediaMetadata.title?.toString() ?: "", style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -293,6 +356,64 @@ private fun QueueList(ui: Ui, state: PlaybackState, data: LibraryData, modifier:
                 onClick = { vm.jumpTo(e.index) },
                 menu = listOf("Play next" to { vm.moveToNext(e.index) }, "Remove from queue" to { vm.removeFromQueue(e.index); Unit }),
             )
+        }
+    }
+}
+
+/**
+ * Swipes on the cover, sideways ([sideways], left being next) or down ([down], to close). A swipe
+ * keeps the one direction it starts in: once the finger has moved a little, whichever way it moved
+ * more decides, and from then on the other way's movement is ignored. So a slanted swipe down
+ * never changes track, and a slanted swipe sideways never closes the screen. The cover takes the
+ * whole gesture, so the screen's own swipe down doesn't also see it. Velocities are pixels a second.
+ */
+@Composable
+private fun Modifier.coverSwipe(
+    sideways: (Float) -> Unit,
+    sidewaysEnd: (Float) -> Unit,
+    down: (Float) -> Unit,
+    downEnd: (Float) -> Unit,
+): Modifier {
+    val onSideways by rememberUpdatedState(sideways)
+    val onSidewaysEnd by rememberUpdatedState(sidewaysEnd)
+    val onDown by rememberUpdatedState(down)
+    val onDownEnd by rememberUpdatedState(downEnd)
+    return pointerInput(Unit) {
+        awaitEachGesture {
+            val first = awaitFirstDown(requireUnconsumed = false)
+            // A little past the usual slop, so the direction is a fair reading of the swipe.
+            val decideAt = viewConfiguration.touchSlop * 1.5f
+            val tracker = VelocityTracker()
+            tracker.addPosition(first.uptimeMillis, first.position)
+            var moved = Offset.Zero
+            var horizontal: Boolean? = null
+            var velocity = Velocity.Zero
+            while (true) {
+                val change = awaitPointerEvent().changes.firstOrNull { it.id == first.id } ?: break
+                if (!change.pressed) {
+                    velocity = tracker.calculateVelocity()
+                    break
+                }
+                tracker.addPosition(change.uptimeMillis, change.position)
+                val delta = change.positionChange()
+                change.consume()
+                if (horizontal == null) {
+                    moved += delta
+                    if (moved.getDistance() < decideAt) continue
+                    horizontal = abs(moved.x) > abs(moved.y)
+                    // What moved while deciding counts too.
+                    if (horizontal) onSideways(moved.x) else onDown(moved.y)
+                } else if (horizontal) {
+                    onSideways(delta.x)
+                } else {
+                    onDown(delta.y)
+                }
+            }
+            when (horizontal) {
+                true -> onSidewaysEnd(velocity.x)
+                false -> onDownEnd(velocity.y)
+                null -> {}
+            }
         }
     }
 }

@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.tlisonbee.segue.library.fold
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -113,42 +116,63 @@ fun HomeScreen(ui: Ui, data: LibraryData, playing: String?) {
         }
         ScanBanner(vm)
         when (vm.tab) {
-            HomeTab.ARTISTS -> LazyColumn(Modifier.fillMaxSize()) {
-                items(data.artists, key = { it.name }) { a ->
-                    EntryRow(
-                        a.name,
-                        listOfNotNull(a.albums.size.takeIf { it > 0 }?.let { if (it == 1) "1 album" else "$it albums" }, summary(a.trackCount, 0)).joinToString(" · "),
-                        lead = { Cover(ui.covers, a.albums.firstNotNullOfOrNull { it.cover } ?: a.appearsOn.firstNotNullOfOrNull { it.cover }, 48.dp, corner = 24.dp) },
-                        onClick = { vm.navigate(Route.ArtistPage(a.name)) },
-                    )
-                }
-                emptyLibrary(data)
-            }
+            HomeTab.ARTISTS -> ArtistsTab(ui, data)
             HomeTab.ALBUMS -> AlbumGrid(ui, data.albums)
-            HomeTab.SONGS -> LazyColumn(Modifier.fillMaxSize()) {
-                if (data.tracks.isNotEmpty()) {
-                    item {
-                        PlayButtons(
-                            onPlay = { vm.play(data.tracks, 0, shuffle = false) },
-                            onShuffle = { vm.play(data.tracks, 0, shuffle = true) },
-                            label = summary(data.tracks.size, 0),
-                        )
-                    }
-                }
-                itemsIndexed(data.tracks, key = { _, t -> t.path }) { i, t ->
-                    TrackRow(
-                        t.title, "${t.artist} · ${t.albumOrUnknown}",
-                        lead = { Cover(ui.covers, t.cover, 44.dp) },
-                        durationMs = t.durationMs, playing = t.path == playing, remote = t.isRemote,
-                        onClick = { vm.play(data.tracks, i) },
-                        menu = ui.trackMenu(t),
-                    )
-                }
-                emptyLibrary(data)
-            }
+            HomeTab.SONGS -> SongsTab(ui, data, playing)
             HomeTab.FOLDERS -> FolderContent(ui, data, vm.library.root.path, playing)
             HomeTab.PLAYLISTS -> PlaylistsTab(ui)
             HomeTab.TIDAL -> TidalTabContent(ui, playing)
+        }
+    }
+}
+
+@UnstableApi
+@Composable
+private fun ArtistsTab(ui: Ui, data: LibraryData) {
+    val vm = ui.vm
+    val list = rememberLazyListState()
+    FastScrollBox(list, { i -> indexLetter(data.artists.getOrNull(i)?.key) }) {
+        LazyColumn(Modifier.fillMaxSize(), list) {
+            items(data.artists, key = { it.name }) { a ->
+                EntryRow(
+                    a.name,
+                    listOfNotNull(a.albums.size.takeIf { it > 0 }?.let { if (it == 1) "1 album" else "$it albums" }, summary(a.trackCount, 0)).joinToString(" · "),
+                    lead = { Cover(ui.covers, a.albums.firstNotNullOfOrNull { it.cover } ?: a.appearsOn.firstNotNullOfOrNull { it.cover }, 48.dp, corner = 24.dp) },
+                    onClick = { vm.navigate(Route.ArtistPage(a.name)) },
+                )
+            }
+            emptyLibrary(data)
+        }
+    }
+}
+
+@UnstableApi
+@Composable
+private fun SongsTab(ui: Ui, data: LibraryData, playing: String?) {
+    val vm = ui.vm
+    val list = rememberLazyListState()
+    // Item 0 is the Play and Shuffle row.
+    FastScrollBox(list, { i -> indexLetter(data.tracks.getOrNull(i - 1)?.titleKey) }) {
+        LazyColumn(Modifier.fillMaxSize(), list) {
+            if (data.tracks.isNotEmpty()) {
+                item {
+                    PlayButtons(
+                        onPlay = { vm.play(data.tracks, 0, shuffle = false) },
+                        onShuffle = { vm.play(data.tracks, 0, shuffle = true) },
+                        label = summary(data.tracks.size, 0),
+                    )
+                }
+            }
+            itemsIndexed(data.tracks, key = { _, t -> t.path }) { i, t ->
+                TrackRow(
+                    t.title, "${t.artist} · ${t.albumOrUnknown}",
+                    lead = { Cover(ui.covers, t.cover, 44.dp) },
+                    durationMs = t.durationMs, playing = t.path == playing, remote = t.isRemote,
+                    onClick = { vm.play(data.tracks, i) },
+                    menu = ui.trackMenu(t),
+                )
+            }
+            emptyLibrary(data)
         }
     }
 }
@@ -190,14 +214,17 @@ fun PlayButtons(onPlay: () -> Unit, onShuffle: () -> Unit, label: String? = null
 @UnstableApi
 @Composable
 fun AlbumGrid(ui: Ui, albums: List<Album>) {
-    LazyVerticalGrid(GridCells.Adaptive(150.dp), Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        items(albums, key = { it.key }) { a ->
-            Column(Modifier.clickable { ui.vm.navigate(Route.AlbumPage(a.key)) }) {
-                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    Cover(ui.covers, a.cover, maxWidth, corner = 8.dp)
+    val grid = rememberLazyGridState()
+    FastScrollBox(grid, { i -> indexLetter(albums.getOrNull(i)?.titleKey) }) {
+        LazyVerticalGrid(GridCells.Adaptive(150.dp), Modifier.fillMaxSize(), grid, contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            items(albums, key = { it.key }) { a ->
+                Column(Modifier.clickable { ui.vm.navigate(Route.AlbumPage(a.key)) }) {
+                    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        Cover(ui.covers, a.cover, maxWidth, corner = 8.dp)
+                    }
+                    Text(a.title, Modifier.padding(top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                    Text(a.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text(a.title, Modifier.padding(top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-                Text(a.artist, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -294,21 +321,30 @@ fun ArtistScreen(ui: Ui, data: LibraryData, name: String, playing: String?) {
 fun FolderContent(ui: Ui, data: LibraryData, path: String, playing: String?) {
     val vm = ui.vm
     val listing = remember(data, path) { data.folder(path) }
-    LazyColumn(Modifier.fillMaxSize()) {
-        items(listing.folders, key = { it.path }) { f ->
-            EntryRow(f.name, summary(f.trackCount, 0), lead = { RoundIcon(R.drawable.ic_folder) }, onClick = { vm.navigate(Route.FolderPage(f.path)) })
+    val list = rememberLazyListState()
+    // Folders, a divider when there are both, then files.
+    val divider = if (listing.folders.isNotEmpty() && listing.tracks.isNotEmpty()) 1 else 0
+    val label = { i: Int ->
+        listing.folders.getOrNull(i)?.let { indexLetter(fold(it.name)) }
+            ?: listing.tracks.getOrNull(i - listing.folders.size - divider)?.let { indexLetter(it.fileKey) }
+    }
+    FastScrollBox(list, label) {
+        LazyColumn(Modifier.fillMaxSize(), list) {
+            items(listing.folders, key = { it.path }) { f ->
+                EntryRow(f.name, summary(f.trackCount, 0), lead = { RoundIcon(R.drawable.ic_folder) }, onClick = { vm.navigate(Route.FolderPage(f.path)) })
+            }
+            if (divider == 1) item { HorizontalDivider() }
+            itemsIndexed(listing.tracks, key = { _, t -> t.path }) { i, t ->
+                TrackRow(
+                    t.fileName, "${t.artist} · ${t.title}",
+                    lead = { Cover(ui.covers, t.cover, 44.dp) },
+                    durationMs = t.durationMs, playing = t.path == playing, remote = t.isRemote,
+                    onClick = { vm.play(listing.tracks, i) },
+                    menu = ui.trackMenu(t),
+                )
+            }
+            if (listing.folders.isEmpty() && listing.tracks.isEmpty()) item { Missing("Nothing to play here.") }
         }
-        if (listing.folders.isNotEmpty() && listing.tracks.isNotEmpty()) item { HorizontalDivider() }
-        itemsIndexed(listing.tracks, key = { _, t -> t.path }) { i, t ->
-            TrackRow(
-                t.fileName, "${t.artist} · ${t.title}",
-                lead = { Cover(ui.covers, t.cover, 44.dp) },
-                durationMs = t.durationMs, playing = t.path == playing, remote = t.isRemote,
-                onClick = { vm.play(listing.tracks, i) },
-                menu = ui.trackMenu(t),
-            )
-        }
-        if (listing.folders.isEmpty() && listing.tracks.isEmpty()) item { Missing("Nothing to play here.") }
     }
 }
 
@@ -316,17 +352,21 @@ fun FolderContent(ui: Ui, data: LibraryData, path: String, playing: String?) {
 @Composable
 private fun PlaylistsTab(ui: Ui) {
     val playlists by ui.vm.library.playlists.collectAsState()
-    LazyColumn(Modifier.fillMaxSize()) {
-        item { EntryRow("New playlist…", "", lead = { RoundIcon(R.drawable.ic_add) }, onClick = { ui.pickPlaylist(emptyList()) }) }
-        items(playlists, key = { it.path }) { p ->
-            EntryRow(p.name, p.path.removePrefix(ui.vm.library.root.path + "/").substringBeforeLast('/', ""), lead = { RoundIcon(R.drawable.ic_playlist) }, onClick = { ui.vm.navigate(Route.PlaylistPage(p.path)) })
-        }
-        if (playlists.isEmpty()) {
-            item {
-                Text(
-                    "Playlists are .m3u8 files in the Music folder. New ones go in Music/Playlists, where MediaSync can sync them like any other file.",
-                    Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+    val list = rememberLazyListState()
+    // Item 0 is "New playlist…".
+    FastScrollBox(list, { i -> playlists.getOrNull(i - 1)?.let { indexLetter(fold(it.name)) } }) {
+        LazyColumn(Modifier.fillMaxSize(), list) {
+            item { EntryRow("New playlist…", "", lead = { RoundIcon(R.drawable.ic_add) }, onClick = { ui.pickPlaylist(emptyList()) }) }
+            items(playlists, key = { it.path }) { p ->
+                EntryRow(p.name, p.path.removePrefix(ui.vm.library.root.path + "/").substringBeforeLast('/', ""), lead = { RoundIcon(R.drawable.ic_playlist) }, onClick = { ui.vm.navigate(Route.PlaylistPage(p.path)) })
+            }
+            if (playlists.isEmpty()) {
+                item {
+                    Text(
+                        "Playlists are .m3u8 files in the Music folder. New ones go in Music/Playlists, where MediaSync can sync them like any other file.",
+                        Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

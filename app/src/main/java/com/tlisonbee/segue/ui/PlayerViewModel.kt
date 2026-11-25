@@ -195,6 +195,18 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun previous() = controller?.seekToPrevious()
 
+    /** Whether there's a track to swipe to: the next one, or (not [forward]) the one before. */
+    fun canSkip(forward: Boolean): Boolean {
+        val c = controller ?: return false
+        return if (forward) c.hasNextMediaItem() else c.hasPreviousMediaItem()
+    }
+
+    /** Straight to the next or previous track, as a swipe on the cover does (Previous restarts a track first). */
+    fun skip(forward: Boolean) {
+        val c = controller ?: return
+        if (forward) c.seekToNextMediaItem() else c.seekToPreviousMediaItem()
+    }
+
     fun seekTo(ms: Long) = controller?.seekTo(ms)
 
     fun toggleShuffle() {
